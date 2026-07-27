@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
+# Remove after Next.js adopts a patched PostCSS release.
+overrides:
+  postcss: 8.5.23

@@ -1,0 +1,17 @@
+{
+  "name": "@athena/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./next": "./next.mjs"
+  },
+  "dependencies": {
+    "eslint-config-next": "16.2.12",
+    "eslint-config-prettier": "10.1.8"
+  },
+  "peerDependencies": {
+    "eslint": "^9.0.0",
+    "typescript": ">=5.1.0 <6.1.0"
+  }
+}
