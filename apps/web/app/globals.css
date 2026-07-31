@@ -1,8 +1,8 @@
 @import 'tailwindcss';
 
 :root {
-  background: #fafaf9;
-  color: #1c1917;
+  background: #f4f1e8;
+  color: #18302d;
   font-synthesis: none;
 }
 
@@ -17,4 +17,14 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: #f0ac87;
+  color: #18302d;
 }
