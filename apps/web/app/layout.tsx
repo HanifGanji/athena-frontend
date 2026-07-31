@@ -4,8 +4,8 @@ import type { ReactNode } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'آتنا',
-  description: 'رابط وب آتنا',
+  title: 'آتنا | یادگیری IELTS برای فارسی‌زبانان',
+  description: 'تمرین هوشمند مهارت‌های IELTS برای فارسی‌زبانان',
 }
 
 type RootLayoutProps = Readonly<{

@@ -14,6 +14,12 @@ npx --yes pnpm@11.17.0 dev
 
 Open http://localhost:3000.
 
+The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
+Reading is functional; the other skill routes currently show product placeholders.
+
+The Reading client uses `NEXT_PUBLIC_API_BASE_URL`, defaulting locally to
+`http://localhost:8000/api/v1`.
+
 Useful checks:
 
 ```bash

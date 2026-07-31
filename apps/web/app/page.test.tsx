@@ -4,9 +4,25 @@ import { describe, expect, it } from 'vitest'
 import HomePage from '@/app/page'
 
 describe('HomePage', () => {
-  it('renders the Atena placeholder', () => {
+  it('links every IELTS module from the main page', () => {
     render(<HomePage />)
 
-    expect(screen.getByRole('heading', { name: 'آتنا' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: /انگلیسی را/ })).toBeVisible()
+    expect(screen.getByRole('link', { name: /درک مطلب/ })).toHaveAttribute(
+      'href',
+      '/reading',
+    )
+    expect(screen.getByRole('link', { name: /نوشتن/ })).toHaveAttribute(
+      'href',
+      '/writing',
+    )
+    expect(screen.getByRole('link', { name: /شنیداری/ })).toHaveAttribute(
+      'href',
+      '/listening',
+    )
+    expect(screen.getByRole('link', { name: /مکالمه/ })).toHaveAttribute(
+      'href',
+      '/speaking',
+    )
   })
 })
