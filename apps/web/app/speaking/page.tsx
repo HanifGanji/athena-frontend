@@ -4,7 +4,8 @@ import { SpeakingWorkspace } from '@/app/speaking-workspace'
 
 export const metadata: Metadata = {
   title: 'تمرین Speaking | آتنا',
-  description: 'ضبط و تبدیل پاسخ انگلیسی به متن در آزمایشگاه Speaking آتنا',
+  description:
+    'تمرین ضبط پاسخ انگلیسی و دریافت پاسخ صوتی ممتحن، بدون نمایش متن یا ذخیره‌سازی',
 }
 
 export default function SpeakingPage() {
