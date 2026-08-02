@@ -1,11 +1,12 @@
-import { ComingSoonSection } from '@/app/coming-soon-section'
+import type { Metadata } from 'next'
+
+import { SpeakingWorkspace } from '@/app/speaking-workspace'
+
+export const metadata: Metadata = {
+  title: 'تمرین Speaking | آتنا',
+  description: 'ضبط و تبدیل پاسخ انگلیسی به متن در آزمایشگاه Speaking آتنا',
+}
 
 export default function SpeakingPage() {
-  return (
-    <ComingSoonSection
-      englishName="Speaking"
-      persianName="مکالمه"
-      description="تمرین Speaking برای هر سه بخش آزمون، همراه با ضبط پاسخ و بازخورد مرحله‌ای، به‌زودی آماده می‌شود."
-    />
-  )
+  return <SpeakingWorkspace />
 }

@@ -33,10 +33,10 @@ const modules = [
     name: 'Speaking',
     faName: 'مکالمه',
     href: '/speaking',
-    description: 'تمرین روان صحبت کردن و ساخت پاسخ برای هر سه بخش آزمون.',
-    detail: 'به‌زودی',
-    accent: 'bg-[#ece8dc] text-[#59635f]',
-    active: false,
+    description: 'ضبط پاسخ انگلیسی، مشاهدهٔ متن گفتگو و شنیدن پاسخ صوتی ممتحن.',
+    detail: 'تمرین فعال',
+    accent: 'bg-[#e57d55] text-white',
+    active: true,
   },
 ] as const
 
@@ -77,8 +77,8 @@ export default function HomePage() {
           </div>
           <div className="space-y-6">
             <p className="max-w-xl text-base leading-8 text-[#52625f] lg:text-lg">
-              از یکی از چهار مهارت شروع کن. آتنا عملکردت را ثبت می‌کند تا هر
-              تمرین، قدم بعدی را روشن‌تر کند.
+              از Reading یا Speaking شروع کن. آتنا عملکردت را ثبت می‌کند تا هر
+              تمرین، قدم بعدی را روشن‌تر کند؛ دو مهارت دیگر هم در راه‌اند.
             </p>
             <a
               href="#modules"
@@ -104,7 +104,7 @@ export default function HomePage() {
               </h2>
             </div>
             <span className="hidden font-mono text-xs text-[#6f7f7b] sm:block">
-              01 ACTIVE · 03 NEXT
+              02 ACTIVE · 02 NEXT
             </span>
           </div>
 
@@ -139,7 +139,9 @@ export default function HomePage() {
                     {module.description}
                   </p>
                   <p className="mt-6 text-sm font-black text-[#155e57]">
-                    {module.active ? 'ورود به Reading' : 'مشاهدهٔ برنامه'}
+                    {module.active
+                      ? `ورود به ${module.name}`
+                      : 'مشاهدهٔ برنامه'}
                     <span className="mr-2 inline-block transition group-hover:-translate-x-1">
                       ←
                     </span>
