@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+import { HomeAuthControls } from '@/app/home-auth-controls'
+
 const modules = [
   {
     name: 'Reading',
@@ -60,9 +62,7 @@ export default function HomePage() {
             </p>
             <p className="mt-1 text-2xl font-black">آتنا</p>
           </Link>
-          <span className="rounded-full border border-[#155e57]/25 bg-white/60 px-4 py-2 text-xs font-bold text-[#155e57]">
-            ویژهٔ فارسی‌زبانان
-          </span>
+          <HomeAuthControls />
         </header>
 
         <section className="grid gap-10 py-14 lg:grid-cols-[1.15fr_0.85fr] lg:items-end lg:py-24">

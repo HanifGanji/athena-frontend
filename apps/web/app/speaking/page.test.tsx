@@ -61,6 +61,7 @@ function fetchForSuccessfulFlow() {
 
 describe('SpeakingPage', () => {
   beforeEach(() => {
+    document.cookie = 'csrftoken=speaking-test-token; path=/'
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:examiner-speech')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
   })
@@ -106,7 +107,16 @@ describe('SpeakingPage', () => {
     )
     const uploadRequest = uploadCall?.[1]
     expect(uploadRequest?.body).toBeInstanceOf(FormData)
+    expect(uploadRequest?.credentials).toBe('include')
     expect(new Headers(uploadRequest?.headers).has('Content-Type')).toBe(false)
+    expect(new Headers(uploadRequest?.headers).get('X-CSRFToken')).toBe(
+      'speaking-test-token',
+    )
+
+    const speechCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/turns/turn-2/speech/'),
+    )
+    expect(speechCall?.[1]?.credentials).toBe('include')
 
     fireEvent.click(screen.getByRole('button', { name: 'پایان جلسه' }))
     expect(

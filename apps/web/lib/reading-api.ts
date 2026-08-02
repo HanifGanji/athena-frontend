@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api/v1'
+import { apiRequest, jsonBody } from '@/lib/api-client'
 
 export type ReadingTestSummary = {
   id: string
@@ -118,43 +117,14 @@ export type AgentFeedback = {
   cached: boolean
 }
 
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message)
-  }
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      detail?: string
-    } | null
-    throw new ApiError(
-      payload?.detail ?? 'ارتباط با سرور ناموفق بود.',
-      response.status,
-    )
-  }
-  return (await response.json()) as T
-}
-
 export const readingApi = {
   listTests: (signal?: AbortSignal) =>
-    request<ReadingTestSummary[]>('/reading/tests/', { signal }),
-  getTest: (slug: string) => request<ReadingTest>(`/reading/tests/${slug}/`),
+    apiRequest<ReadingTestSummary[]>('/reading/tests/', { signal }),
+  getTest: (slug: string) => apiRequest<ReadingTest>(`/reading/tests/${slug}/`),
   startAttempt: (slug: string, mode: ReadingAttempt['mode']) =>
-    request<ReadingAttempt>(`/reading/tests/${slug}/attempts/`, {
+    apiRequest<ReadingAttempt>(`/reading/tests/${slug}/attempts/`, {
       method: 'POST',
-      body: JSON.stringify({ mode }),
+      body: jsonBody({ mode }),
     }),
   saveResponse: (
     attemptId: string,
@@ -162,21 +132,21 @@ export const readingApi = {
     answers: Record<string, string>,
     clientEventId = crypto.randomUUID(),
   ) =>
-    request(`/reading/attempts/${attemptId}/responses/${groupId}/`, {
+    apiRequest(`/reading/attempts/${attemptId}/responses/${groupId}/`, {
       method: 'PUT',
-      body: JSON.stringify({
+      body: jsonBody({
         client_event_id: clientEventId,
         answer_payload: { answers },
       }),
     }),
   submitAttempt: (attemptId: string) =>
-    request<Evaluation>(`/reading/attempts/${attemptId}/submit/`, {
+    apiRequest<Evaluation>(`/reading/attempts/${attemptId}/submit/`, {
       method: 'POST',
-      body: '{}',
+      body: jsonBody({}),
     }),
   requestFeedback: (attemptId: string) =>
-    request<AgentFeedback>(`/reading/attempts/${attemptId}/feedback/`, {
+    apiRequest<AgentFeedback>(`/reading/attempts/${attemptId}/feedback/`, {
       method: 'POST',
-      body: '{}',
+      body: jsonBody({}),
     }),
 }
