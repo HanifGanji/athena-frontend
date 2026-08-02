@@ -26,5 +26,13 @@ describe('HomePage', () => {
     )
     expect(screen.getByText('02 ACTIVE · 02 NEXT')).toBeVisible()
     expect(screen.getByText('ورود به Speaking')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'ورود' })).toHaveAttribute(
+      'href',
+      '/auth?mode=login',
+    )
+    expect(screen.getByRole('link', { name: 'ثبت‌نام' })).toHaveAttribute(
+      'href',
+      '/auth?mode=register',
+    )
   })
 })

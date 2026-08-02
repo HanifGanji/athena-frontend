@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ReadingPage from '@/app/reading/page'
 
@@ -89,6 +89,10 @@ function json(payload: unknown, status = 200) {
 }
 
 describe('ReadingPage', () => {
+  beforeEach(() => {
+    document.cookie = 'csrftoken=reading-test-token; path=/'
+  })
+
   afterEach(() => vi.restoreAllMocks())
 
   it('completes the Reading flow from test selection to AI feedback', async () => {
@@ -96,7 +100,7 @@ describe('ReadingPage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation((input, init) => {
         const url = String(input)
-        if (url.endsWith('/reading/tests/') && !init?.method) {
+        if (url.endsWith('/reading/tests/') && init?.method === 'GET') {
           return json([summary])
         }
         if (url.endsWith('/reading/tests/demo/')) return json(detail)
@@ -175,5 +179,14 @@ describe('ReadingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'تحلیل فارسی با AI' }))
     expect(await screen.findByText('پیدا کردن شاهد')).toBeVisible()
     expect(screen.getByText('یک متن دیگر تمرین کن.')).toBeVisible()
+    expect(
+      fetchMock.mock.calls.every(([, init]) => init?.credentials === 'include'),
+    ).toBe(true)
+    const saveCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/responses/'),
+    )
+    expect(new Headers(saveCall?.[1]?.headers).get('X-CSRFToken')).toBe(
+      'reading-test-token',
+    )
   })
 })
