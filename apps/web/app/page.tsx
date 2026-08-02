@@ -35,7 +35,8 @@ const modules = [
     name: 'Speaking',
     faName: 'مکالمه',
     href: '/speaking',
-    description: 'ضبط پاسخ انگلیسی، مشاهدهٔ متن گفتگو و شنیدن پاسخ صوتی ممتحن.',
+    description:
+      'ضبط و بازبینی پاسخ انگلیسی و شنیدن پاسخ صوتی ممتحن، بدون نمایش متن.',
     detail: 'تمرین فعال',
     accent: 'bg-[#e57d55] text-white',
     active: true,

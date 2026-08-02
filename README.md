@@ -44,11 +44,12 @@ reset disposable local SQLite or Docker PostgreSQL data as described in the
 backend README, rerun migrations, and reseed the Reading demo before registering
 through the UI.
 
-The authenticated `/speaking` test workspace starts an IELTS or TOEFL session,
-records audio with the browser (or accepts an audio file), displays the durable
-text transcript, and plays the AI-generated examiner reply. Audio is processed
-transiently and is not retained by the application. This demo route needs
-request throttling and stronger account-level authorization before public,
+The authenticated `/speaking` practice workspace offers an explicit
+record/stop flow for IELTS or TOEFL practice, lets the learner review or
+re-record locally before sending, and plays only the AI-generated examiner
+voice reply. The learner audio and its transient transcription are not saved or
+returned to the browser. Audio-file upload remains available as a quiet
+microphone fallback. This demo route needs request throttling before public,
 paid-provider use.
 
 Useful checks:
