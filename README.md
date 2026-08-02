@@ -15,10 +15,17 @@ npx --yes pnpm@11.17.0 dev
 Open http://localhost:3000.
 
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
-Reading is functional; the other skill routes currently show product placeholders.
+Reading and Speaking are functional; Writing and Listening currently show
+product placeholders.
 
-The Reading client uses `NEXT_PUBLIC_API_BASE_URL`, defaulting locally to
+The Reading and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`, defaulting locally to
 `http://localhost:8000/api/v1`.
+
+The `/speaking` test workspace starts an anonymous IELTS or TOEFL session,
+records audio with the browser (or accepts an audio file), displays the durable
+text transcript, and plays the AI-generated examiner reply. Audio is processed
+transiently and is not retained by the application. This demo route needs
+authentication and request throttling before public, paid-provider use.
 
 Useful checks:
 

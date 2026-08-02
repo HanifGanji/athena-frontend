@@ -24,5 +24,7 @@ describe('HomePage', () => {
       'href',
       '/speaking',
     )
+    expect(screen.getByText('02 ACTIVE · 02 NEXT')).toBeVisible()
+    expect(screen.getByText('ورود به Speaking')).toBeVisible()
   })
 })
