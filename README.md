@@ -58,10 +58,12 @@ shows the IELTS timer, and debounces autosave. Draft saves use optimistic
 revision numbers and expose an explicit choice if another tab has saved a newer
 version. Submission is reviewed and immutable; below-minimum work can still be
 submitted with a realistic warning. AI feedback is requested separately after
-submission and renders criterion estimates, strengths, improvements, exact
-essay excerpts, suggested rewrites, and prioritized practice actions. The UI
-labels every band as an educational estimate and explains the daily feedback
-allowance; ordinary drafting never calls AI.
+submission and renders independently calibrated criterion estimates. The result
+keeps the learner's full essay visible, highlights evidence-linked strengths and
+issues inline, and opens a focused explanation with the original wording and a
+concrete rewrite. Prioritized practice actions turn the review into a next-step
+plan. The UI labels every band as an educational estimate and explains the daily
+feedback allowance; ordinary drafting never calls AI.
 
 Useful checks:
 

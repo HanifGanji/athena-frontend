@@ -58,10 +58,20 @@ function feedbackKindLabel(kind: string) {
   return 'فرصت بهبود'
 }
 
-function feedbackKindClasses(kind: string) {
-  if (kind === 'strength') return 'border-emerald-200 bg-emerald-50'
-  if (kind === 'language_issue') return 'border-violet-200 bg-violet-50'
-  return 'border-amber-200 bg-amber-50'
+function feedbackKindClasses(kind: string, active = false) {
+  if (kind === 'strength') {
+    return active
+      ? 'border-emerald-500 bg-emerald-100 text-emerald-950'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-950'
+  }
+  if (kind === 'language_issue') {
+    return active
+      ? 'border-violet-500 bg-violet-100 text-violet-950'
+      : 'border-violet-200 bg-violet-50 text-violet-950'
+  }
+  return active
+    ? 'border-amber-500 bg-amber-100 text-amber-950'
+    : 'border-amber-200 bg-amber-50 text-amber-950'
 }
 
 function replaceTaskResponse(
@@ -102,18 +112,238 @@ function conflictFrom(error: unknown, taskId: string, localText: string) {
   }
 }
 
-function EvaluationPanel({ evaluation }: { evaluation: WritingEvaluation }) {
-  const strengths = evaluation.feedback_items.filter(
-    (item) => item.kind === 'strength',
+type FeedbackItem = WritingEvaluation['feedback_items'][number]
+
+type AnnotationRange = {
+  start: number
+  end: number
+  item: FeedbackItem
+}
+
+function buildAnnotationRanges(text: string, items: FeedbackItem[]) {
+  const candidates: AnnotationRange[] = []
+  for (const item of items) {
+    const start = item.start_offset
+    const end = item.end_offset
+    if (
+      start === null ||
+      end === null ||
+      start < 0 ||
+      end <= start ||
+      end > text.length
+    ) {
+      continue
+    }
+    candidates.push({ start, end, item })
+  }
+
+  candidates.sort((left, right) => {
+    const leftPriority = left.item.kind === 'strength' ? 1 : 0
+    const rightPriority = right.item.kind === 'strength' ? 1 : 0
+    return (
+      leftPriority - rightPriority ||
+      left.end - left.start - (right.end - right.start) ||
+      left.start - right.start
+    )
+  })
+
+  const selected: AnnotationRange[] = []
+  for (const candidate of candidates) {
+    const overlaps = selected.some(
+      (range) => candidate.start < range.end && candidate.end > range.start,
+    )
+    if (!overlaps) selected.push(candidate)
+  }
+  return selected.sort((left, right) => left.start - right.start)
+}
+
+function bandLevelLabel(score: string) {
+  const value = Number(score)
+  if (value >= 7.5) return 'عملکرد قوی'
+  if (value >= 6.5) return 'نزدیک به سطح ۷'
+  if (value >= 5.5) return 'پایهٔ قابل توسعه'
+  return 'نیازمند تمرین هدفمند'
+}
+
+function FeedbackDetail({
+  evaluation,
+  item,
+}: {
+  evaluation: WritingEvaluation
+  item: FeedbackItem
+}) {
+  const criterion = evaluation.criterion_results.find(
+    (result) => result.code === item.criterion_code,
   )
-  const improvements = evaluation.feedback_items.filter(
-    (item) => item.kind !== 'strength',
-  )
+  const isStrength = item.kind === 'strength'
 
   return (
-    <article className="space-y-6 rounded-[2rem] border border-[#18302d]/10 bg-[#fffdf8] p-5 shadow-[0_18px_55px_rgba(24,48,45,0.07)] sm:p-8">
-      <div className="grid gap-6 border-b border-[#18302d]/10 pb-7 sm:grid-cols-[auto_1fr] sm:items-center">
-        <div className="grid size-28 place-items-center rounded-full bg-[#18302d] text-center text-white">
+    <article
+      aria-live="polite"
+      className={`rounded-[1.75rem] border p-5 shadow-[0_14px_38px_rgba(24,48,45,0.08)] sm:p-6 ${feedbackKindClasses(
+        item.kind,
+        true,
+      )}`}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-black tracking-[0.12em]">
+        <span>{feedbackKindLabel(item.kind)}</span>
+        {criterion && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{criterion.name_fa}</span>
+          </>
+        )}
+      </div>
+      <h4 className="mt-2 text-xl font-black">{item.title_fa}</h4>
+
+      <div className="mt-5 rounded-2xl bg-white/75 p-4">
+        <p className="text-xs font-black text-[#5d6966]">
+          {isStrength ? 'چرا این بخش خوب کار می‌کند؟' : 'چرا این نکته مهم است؟'}
+        </p>
+        <p className="mt-2 text-sm leading-7 text-[#43514e]">
+          {item.explanation_fa}
+        </p>
+      </div>
+
+      {item.original_excerpt && (
+        <div className="mt-4">
+          <p className="text-xs font-black text-[#5d6966]">متن خودت</p>
+          <blockquote
+            dir="ltr"
+            className="mt-2 border-l-2 border-current/30 pl-4 text-left font-serif text-base leading-7 text-[#253a36]"
+          >
+            {item.original_excerpt}
+          </blockquote>
+        </div>
+      )}
+
+      {!isStrength && item.suggested_revision && (
+        <div className="mt-5 rounded-2xl bg-[#18302d] p-4 text-white">
+          <p className="text-[10px] font-black tracking-[0.12em] text-[#f1a57d]">
+            نسخهٔ دقیق‌تر
+          </p>
+          <p
+            dir="ltr"
+            className="mt-2 text-left font-serif text-base leading-7 text-[#f4f1e8]"
+          >
+            {item.suggested_revision}
+          </p>
+        </div>
+      )}
+    </article>
+  )
+}
+
+function AnnotatedEssay({
+  text,
+  ranges,
+  selectedSequence,
+  onSelect,
+}: {
+  text: string
+  ranges: AnnotationRange[]
+  selectedSequence: number | null
+  onSelect: (item: FeedbackItem) => void
+}) {
+  const segments: Array<{
+    text: string
+    item?: FeedbackItem
+    key: string
+  }> = []
+  let cursor = 0
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      segments.push({
+        text: text.slice(cursor, range.start),
+        key: `plain-${cursor}`,
+      })
+    }
+    segments.push({
+      text: text.slice(range.start, range.end),
+      item: range.item,
+      key: `feedback-${range.item.sequence}`,
+    })
+    cursor = range.end
+  }
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), key: `plain-${cursor}` })
+  }
+
+  return (
+    <p
+      dir="ltr"
+      className="whitespace-pre-wrap text-left font-serif text-[1.05rem] leading-9 text-[#2e3d3a]"
+    >
+      {segments.map((segment) =>
+        segment.item ? (
+          <button
+            key={segment.key}
+            type="button"
+            aria-label={`نمایش بازخورد: ${segment.item.title_fa}`}
+            aria-pressed={selectedSequence === segment.item.sequence}
+            onClick={() => onSelect(segment.item!)}
+            className={`rounded-md border-b-2 px-0.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#155e57] ${feedbackKindClasses(
+              segment.item.kind,
+              selectedSequence === segment.item.sequence,
+            )}`}
+          >
+            {segment.text}
+          </button>
+        ) : (
+          <span key={segment.key}>{segment.text}</span>
+        ),
+      )}
+    </p>
+  )
+}
+
+function EvaluationPanel({
+  evaluation,
+  submissionText,
+}: {
+  evaluation: WritingEvaluation
+  submissionText: string
+}) {
+  const defaultItem =
+    evaluation.feedback_items.find((item) => item.kind !== 'strength') ??
+    evaluation.feedback_items[0]
+  const [selectedSequence, setSelectedSequence] = useState<number | null>(
+    defaultItem?.sequence ?? null,
+  )
+  const selectedItem =
+    evaluation.feedback_items.find(
+      (item) => item.sequence === selectedSequence,
+    ) ?? defaultItem
+  const ranges = useMemo(
+    () => buildAnnotationRanges(submissionText, evaluation.feedback_items),
+    [evaluation.feedback_items, submissionText],
+  )
+  const strengths = evaluation.feedback_items.filter(
+    (item) => item.kind === 'strength',
+  ).length
+  const improvements = evaluation.feedback_items.length - strengths
+
+  return (
+    <article className="space-y-8 rounded-[2rem] border border-[#18302d]/10 bg-[#fffdf8] p-5 shadow-[0_18px_55px_rgba(24,48,45,0.07)] sm:p-8">
+      <header className="grid gap-6 border-b border-[#18302d]/10 pb-8 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div>
+          <p className="text-xs font-bold tracking-[0.16em] text-[#a14e32]">
+            ATHENA WRITING REVIEW
+          </p>
+          <h2 className="mt-2 text-3xl font-black">گزارش تحلیلی پاسخ تو</h2>
+          <p className="mt-4 max-w-3xl leading-8 text-[#52625f]">
+            {evaluation.summary_fa}
+          </p>
+          {evaluation.examiner_comment_en && (
+            <p
+              dir="ltr"
+              className="mt-5 max-w-3xl border-l-2 border-[#e57d55] pl-4 text-left font-serif text-base leading-7 italic text-[#43514e]"
+            >
+              {evaluation.examiner_comment_en}
+            </p>
+          )}
+        </div>
+        <div className="grid size-32 place-items-center rounded-[2rem] bg-[#18302d] text-center text-white shadow-[0_18px_42px_rgba(24,48,45,0.18)]">
           <div>
             <p className="font-mono text-4xl font-black text-[#f1a57d]">
               {evaluation.estimated_band_score}
@@ -123,32 +353,25 @@ function EvaluationPanel({ evaluation }: { evaluation: WritingEvaluation }) {
             </p>
           </div>
         </div>
-        <div>
-          <p className="text-xs font-bold tracking-[0.16em] text-[#a14e32]">
-            ATHENA WRITING REVIEW
-          </p>
-          <h2 className="mt-2 text-2xl font-black">تصویر کلی پاسخ تو</h2>
-          <p className="mt-3 leading-8 text-[#52625f]">
-            {evaluation.summary_fa}
-          </p>
-          {evaluation.examiner_comment_en && (
-            <p
-              dir="ltr"
-              className="mt-4 border-l-2 border-[#e57d55] pl-4 text-left font-serif text-base leading-7 italic text-[#43514e]"
-            >
-              {evaluation.examiner_comment_en}
-            </p>
-          )}
-        </div>
-      </div>
+      </header>
 
       <section aria-labelledby={`criteria-${evaluation.submission_id}`}>
-        <h3
-          id={`criteria-${evaluation.submission_id}`}
-          className="text-lg font-black"
-        >
-          نمرهٔ تخمینی هر معیار
-        </h3>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold tracking-[0.14em] text-[#71807c]">
+              INDEPENDENT CRITERIA
+            </p>
+            <h3
+              id={`criteria-${evaluation.submission_id}`}
+              className="mt-1 text-xl font-black"
+            >
+              هر مهارت جداگانه بررسی شده است
+            </h3>
+          </div>
+          <p className="text-xs leading-6 text-[#71807c]">
+            نمره‌ها تخمینی‌اند و با شواهد همین متن سنجیده شده‌اند.
+          </p>
+        </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {evaluation.criterion_results.map((criterion) => (
             <div
@@ -169,6 +392,17 @@ function EvaluationPanel({ evaluation }: { evaluation: WritingEvaluation }) {
                   {criterion.band_score}
                 </span>
               </div>
+              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#e8eeeb]">
+                <div
+                  className="h-full rounded-full bg-[#155e57]"
+                  style={{
+                    width: `${Math.min(100, (Number(criterion.band_score) / 9) * 100)}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-2 text-xs font-black text-[#155e57]">
+                {bandLevelLabel(criterion.band_score)}
+              </p>
               <p className="mt-3 text-sm leading-7 text-[#5c6966]">
                 {criterion.rationale_fa}
               </p>
@@ -177,26 +411,66 @@ function EvaluationPanel({ evaluation }: { evaluation: WritingEvaluation }) {
         </div>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-2">
-        <div>
-          <h3 className="text-lg font-black text-emerald-800">
-            چیزهایی که خوب انجام دادی
-          </h3>
-          <div className="mt-3 space-y-3">
-            {strengths.map((item) => (
-              <FeedbackCard key={item.sequence} item={item} />
-            ))}
+      <section aria-labelledby={`annotated-${evaluation.submission_id}`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold tracking-[0.14em] text-[#71807c]">
+              EVIDENCE-BASED REVIEW
+            </p>
+            <h3
+              id={`annotated-${evaluation.submission_id}`}
+              className="mt-1 text-2xl font-black"
+            >
+              پاسخ تو با نکته‌های قابل بررسی
+            </h3>
+            <p className="mt-2 text-sm leading-7 text-[#64716e]">
+              روی بخش‌های رنگی بزن؛ توضیح دقیق و نسخهٔ بهتر همان بخش باز می‌شود.
+            </p>
+          </div>
+          <div className="flex gap-2 text-xs font-black">
+            <span className="rounded-full bg-emerald-100 px-3 py-2 text-emerald-900">
+              {strengths} نقطهٔ قوت
+            </span>
+            <span className="rounded-full bg-amber-100 px-3 py-2 text-amber-950">
+              {improvements} نکتهٔ قابل بهبود
+            </span>
           </div>
         </div>
-        <div>
-          <h3 className="text-lg font-black text-amber-900">
-            مهم‌ترین راه‌های بهتر شدن
-          </h3>
-          <div className="mt-3 space-y-3">
-            {improvements.map((item) => (
-              <FeedbackCard key={item.sequence} item={item} />
-            ))}
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1.25fr_0.75fr] lg:items-start">
+          <div className="rounded-[1.75rem] border border-[#18302d]/10 bg-white p-5 sm:p-7">
+            <AnnotatedEssay
+              text={submissionText}
+              ranges={ranges}
+              selectedSequence={selectedSequence}
+              onSelect={(item) => setSelectedSequence(item.sequence)}
+            />
+            <div className="mt-7 border-t border-[#18302d]/10 pt-5">
+              <p className="text-xs font-black text-[#64716e]">فهرست نکته‌ها</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {evaluation.feedback_items.map((item, index) => (
+                  <button
+                    key={item.sequence}
+                    type="button"
+                    aria-pressed={selectedSequence === item.sequence}
+                    onClick={() => setSelectedSequence(item.sequence)}
+                    className={`rounded-full border px-3 py-2 text-xs font-black transition ${feedbackKindClasses(
+                      item.kind,
+                      selectedSequence === item.sequence,
+                    )}`}
+                  >
+                    {index + 1}. {item.title_fa}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+
+          {selectedItem && (
+            <div className="lg:sticky lg:top-6">
+              <FeedbackDetail evaluation={evaluation} item={selectedItem} />
+            </div>
+          )}
         </div>
       </section>
 
@@ -228,45 +502,6 @@ function EvaluationPanel({ evaluation }: { evaluation: WritingEvaluation }) {
         </ol>
       </section>
     </article>
-  )
-}
-
-function FeedbackCard({
-  item,
-}: {
-  item: WritingEvaluation['feedback_items'][number]
-}) {
-  return (
-    <div className={`rounded-2xl border p-4 ${feedbackKindClasses(item.kind)}`}>
-      <p className="text-[10px] font-bold tracking-[0.14em] opacity-65">
-        {feedbackKindLabel(item.kind)}
-      </p>
-      <p className="mt-1 font-black">{item.title_fa}</p>
-      <p className="mt-2 text-sm leading-7 text-[#56625f]">
-        {item.explanation_fa}
-      </p>
-      {item.original_excerpt && (
-        <blockquote
-          dir="ltr"
-          className="mt-3 rounded-xl bg-white/70 p-3 text-left font-serif text-sm leading-6 text-[#34413f]"
-        >
-          “{item.original_excerpt}”
-        </blockquote>
-      )}
-      {item.suggested_revision && (
-        <div className="mt-3 rounded-xl border border-[#155e57]/15 bg-white/80 p-3">
-          <p className="text-[10px] font-bold tracking-wider text-[#155e57]">
-            پیشنهاد بازنویسی
-          </p>
-          <p
-            dir="ltr"
-            className="mt-1 text-left font-serif text-sm leading-6 text-[#34413f]"
-          >
-            {item.suggested_revision}
-          </p>
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -1040,7 +1275,7 @@ export function WritingWorkspace() {
           </section>
         </div>
       ) : (
-        <div className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
+        <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-14">
           <section className="mb-7 rounded-[2rem] bg-[#18302d] p-6 text-white sm:p-8">
             <p className="text-xs font-bold tracking-[0.16em] text-[#f1a57d]">
               RESPONSE SUBMITTED
@@ -1079,6 +1314,12 @@ export function WritingWorkspace() {
                 <EvaluationPanel
                   key={evaluation.submission_id}
                   evaluation={evaluation}
+                  submissionText={
+                    attempt.tasks.find(
+                      (task) =>
+                        task.submission?.id === evaluation.submission_id,
+                    )?.submission?.text_content ?? ''
+                  }
                 />
               ))}
               <div className="flex justify-center pt-2">

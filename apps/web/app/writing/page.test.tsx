@@ -63,6 +63,9 @@ const initialResponse = {
   updated_at: new Date().toISOString(),
 }
 
+const submittedEssay =
+  'Public services can support every household and create fairer cities.'
+
 function attempt(status = 'in_progress', response = initialResponse) {
   return {
     id: 'attempt-1',
@@ -152,12 +155,15 @@ describe('WritingPage', () => {
                 estimated_band_score: '6.5',
                 summary_fa: 'موضع روشن است و برای بسط ایده جا دارد.',
                 examiner_comment_en: 'A clear position with relevant ideas.',
-                criterion_results: prompt.criteria.map((criterion) => ({
+                criterion_results: prompt.criteria.map((criterion, index) => ({
                   code: criterion.code,
                   name_en: criterion.name_en,
                   name_fa: criterion.name_fa,
-                  band_score: '6.5',
-                  rationale_fa: 'عملکرد پایدار و قابل توسعه است.',
+                  band_score: ['7.0', '6.5', '6.0', '5.5'][index],
+                  rationale_fa:
+                    index === 0
+                      ? 'موضع روشن است، اما یک مثال دقیق‌تر پاسخ را کامل می‌کند.'
+                      : 'این معیار شواهد و محدودیت متفاوتی در متن دارد.',
                 })),
                 feedback_items: [
                   {
@@ -172,15 +178,59 @@ describe('WritingPage', () => {
                     sequence: 1,
                   },
                   {
+                    kind: 'strength',
+                    criterion_code: 'task-response',
+                    title_fa: 'نتیجهٔ مرتبط',
+                    explanation_fa:
+                      'نتیجهٔ اجتماعی مستقیماً به ادعا مربوط است.',
+                    original_excerpt: 'fairer cities',
+                    suggested_revision: '',
+                    start_offset: submittedEssay.indexOf('fairer cities'),
+                    end_offset:
+                      submittedEssay.indexOf('fairer cities') +
+                      'fairer cities'.length,
+                    sequence: 2,
+                  },
+                  {
                     kind: 'improvement',
                     criterion_code: 'task-response',
-                    title_fa: 'مثال دقیق‌تر',
-                    explanation_fa: 'برای ادعای اصلی یک مثال واقعی اضافه کن.',
-                    original_excerpt: '',
-                    suggested_revision: 'For example, local councils could…',
-                    start_offset: null,
-                    end_offset: null,
-                    sequence: 2,
+                    title_fa: 'فعل کلی',
+                    explanation_fa:
+                      'فعل support نوع حمایت را مشخص نمی‌کند و استدلال را مبهم می‌گذارد.',
+                    original_excerpt: 'can support',
+                    suggested_revision: 'can provide reliable access to',
+                    start_offset: submittedEssay.indexOf('can support'),
+                    end_offset:
+                      submittedEssay.indexOf('can support') +
+                      'can support'.length,
+                    sequence: 3,
+                  },
+                  {
+                    kind: 'improvement',
+                    criterion_code: 'task-response',
+                    title_fa: 'دامنهٔ مخاطب نامشخص',
+                    explanation_fa:
+                      'عبارت every household تفاوت نیازهای خانوارها را نشان نمی‌دهد.',
+                    original_excerpt: 'every household',
+                    suggested_revision: 'low-income and vulnerable households',
+                    start_offset: submittedEssay.indexOf('every household'),
+                    end_offset:
+                      submittedEssay.indexOf('every household') +
+                      'every household'.length,
+                    sequence: 4,
+                  },
+                  {
+                    kind: 'language_issue',
+                    criterion_code: 'lexical-resource',
+                    title_fa: 'انتخاب واژهٔ دقیق‌تر',
+                    explanation_fa:
+                      'create درست است اما اثر سیاست را با دقت کافی بیان نمی‌کند.',
+                    original_excerpt: 'create',
+                    suggested_revision: 'help build more equitable',
+                    start_offset: submittedEssay.indexOf('create'),
+                    end_offset:
+                      submittedEssay.indexOf('create') + 'create'.length,
+                    sequence: 5,
                   },
                 ],
                 recommendations: [
@@ -209,8 +259,7 @@ describe('WritingPage', () => {
     })
     fireEvent.change(editor, {
       target: {
-        value:
-          'Public services can support every household and create fairer cities.',
+        value: submittedEssay,
       },
     })
     fireEvent.click(screen.getByRole('button', { name: 'ذخیرهٔ پیش‌نویس' }))
@@ -235,10 +284,26 @@ describe('WritingPage', () => {
       screen.getByRole('button', { name: 'دریافت تحلیل معیاربه‌معیار' }),
     )
 
-    expect(await screen.findByText('موضع روشن')).toBeVisible()
-    expect(screen.getByText('مثال دقیق‌تر')).toBeVisible()
+    expect(
+      await screen.findByRole('heading', {
+        name: 'پاسخ تو با نکته‌های قابل بررسی',
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'نمایش بازخورد: موضع روشن' }),
+    ).toBeVisible()
+    expect(screen.getAllByText('فعل کلی').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('تمرین بسط ایده')).toBeVisible()
-    expect(screen.getAllByText('6.5').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('7.0').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('5.5').length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'نمایش بازخورد: دامنهٔ مخاطب نامشخص',
+      }),
+    )
+    expect(
+      screen.getByText('low-income and vulnerable households'),
+    ).toBeVisible()
     expect(
       fetchMock.mock.calls.every(([, init]) => init?.credentials === 'include'),
     ).toBe(true)
