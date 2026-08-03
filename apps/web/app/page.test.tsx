@@ -24,7 +24,8 @@ describe('HomePage', () => {
       'href',
       '/speaking',
     )
-    expect(screen.getByText('02 ACTIVE · 02 NEXT')).toBeVisible()
+    expect(screen.getByText('03 ACTIVE · 01 NEXT')).toBeVisible()
+    expect(screen.getByText('ورود به Writing')).toBeVisible()
     expect(screen.getByText('ورود به Speaking')).toBeVisible()
     expect(screen.getByRole('link', { name: 'ورود' })).toHaveAttribute(
       'href',

@@ -15,12 +15,12 @@ npx --yes pnpm@11.17.0 dev
 Open http://localhost:3000.
 
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
-Reading and Speaking are functional; Writing and Listening currently show
-product placeholders. The home page stays public, while all four module routes
+Reading, Writing, and Speaking are functional; Listening currently shows a
+product placeholder. The home page stays public, while all four module routes
 require an authenticated session.
 
-The Reading and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`, defaulting locally to
-`http://localhost:8000/api/v1`.
+The Reading, Writing, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
+defaulting locally to `http://localhost:8000/api/v1`.
 
 ### Development authentication
 
@@ -51,6 +51,17 @@ voice reply. The learner audio and its transient transcription are not saved or
 returned to the browser. Audio-file upload remains available as a quiet
 microphone fallback. This demo route needs request throttling before public,
 paid-provider use.
+
+The authenticated `/writing` workspace lists published single tasks and full
+mocks, displays the original English prompt beside an LTR editor, counts words,
+shows the IELTS timer, and debounces autosave. Draft saves use optimistic
+revision numbers and expose an explicit choice if another tab has saved a newer
+version. Submission is reviewed and immutable; below-minimum work can still be
+submitted with a realistic warning. AI feedback is requested separately after
+submission and renders criterion estimates, strengths, improvements, exact
+essay excerpts, suggested rewrites, and prioritized practice actions. The UI
+labels every band as an educational estimate and explains the daily feedback
+allowance; ordinary drafting never calls AI.
 
 Useful checks:
 

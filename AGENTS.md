@@ -10,6 +10,13 @@
   and keep Reading, Speaking, Writing, and Listening behind the shared auth gate.
 - The local OTP flow sends no SMS and accepts any six digits. Keep that warning
   visible in the UI until a real OTP provider replaces the development seam.
+- Keep Writing prompts and essays LTR inside the Persian-first workspace. Draft
+  saves must remain debounced, revision-aware, and free of AI calls. Never
+  silently resolve a stale-revision conflict, mutate submitted text, or present
+  an estimated band as an official IELTS result.
+- Writing feedback is an explicit learner action with a server-enforced daily
+  allowance. Render the normalized criterion, strength, improvement, excerpt,
+  rewrite, and next-action fields; do not depend on provider JSON shapes.
 
 Before handing off changes, run:
 

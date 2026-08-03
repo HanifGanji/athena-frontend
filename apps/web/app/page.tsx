@@ -18,9 +18,9 @@ const modules = [
     faName: 'نوشتن',
     href: '/writing',
     description: 'تمرین Task 1 و Task 2 با بازخورد مرحله‌به‌مرحله.',
-    detail: 'به‌زودی',
-    accent: 'bg-[#dcebe5] text-[#155e57]',
-    active: false,
+    detail: 'تمرین فعال',
+    accent: 'bg-[#155e57] text-white',
+    active: true,
   },
   {
     name: 'Listening',
@@ -78,8 +78,9 @@ export default function HomePage() {
           </div>
           <div className="space-y-6">
             <p className="max-w-xl text-base leading-8 text-[#52625f] lg:text-lg">
-              از Reading یا Speaking شروع کن. آتنا عملکردت را ثبت می‌کند تا هر
-              تمرین، قدم بعدی را روشن‌تر کند؛ دو مهارت دیگر هم در راه‌اند.
+              از Reading، Writing یا Speaking شروع کن. آتنا عملکردت را ثبت
+              می‌کند تا هر تمرین، قدم بعدی را روشن‌تر کند؛ Listening هم در راه
+              است.
             </p>
             <a
               href="#modules"
@@ -105,7 +106,7 @@ export default function HomePage() {
               </h2>
             </div>
             <span className="hidden font-mono text-xs text-[#6f7f7b] sm:block">
-              02 ACTIVE · 02 NEXT
+              03 ACTIVE · 01 NEXT
             </span>
           </div>
 
