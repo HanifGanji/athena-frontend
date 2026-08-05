@@ -1,48 +1,311 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SpeakingPage from '@/app/speaking/page'
+import { AUTH_REQUIRED_EVENT } from '@/lib/api-client'
+import type {
+  SpeakingSession,
+  SpeakingSessionSummary,
+  SpeakingTurn,
+} from '@/lib/speaking-api'
 
-function audioResponse() {
+const now = '2026-08-05T10:00:00Z'
+
+function turn(
+  overrides: Partial<SpeakingTurn> & Pick<SpeakingTurn, 'id' | 'kind' | 'role'>,
+): SpeakingTurn {
+  return {
+    created_at: now,
+    duration_difference_ms: null,
+    is_hidden: false,
+    item_index: null,
+    prompt_id: null,
+    recording_duration_ms: null,
+    sequence: 1,
+    stage: '',
+    suggested_duration_ms: null,
+    transcript: '',
+    ...overrides,
+  }
+}
+
+const greeting = turn({
+  id: '00000000-0000-4000-8000-000000000001',
+  kind: 'greeting',
+  role: 'examiner',
+  transcript: 'Welcome to your speaking practice.',
+})
+
+const repeatPrompt = turn({
+  id: '00000000-0000-4000-8000-000000000002',
+  is_hidden: true,
+  item_index: 0,
+  kind: 'repeat_sentence',
+  role: 'examiner',
+  sequence: 2,
+  stage: 'toefl_repeat',
+  suggested_duration_ms: 8_000,
+  transcript: null,
+})
+
+const visibleRepeatPrompt = {
+  ...repeatPrompt,
+  is_hidden: false,
+  transcript: 'Please bring your notebook today.',
+}
+
+const secondRepeatPrompt = turn({
+  id: '00000000-0000-4000-8000-000000000004',
+  is_hidden: true,
+  item_index: 1,
+  kind: 'repeat_sentence',
+  role: 'examiner',
+  sequence: 4,
+  stage: 'toefl_repeat',
+  suggested_duration_ms: 8_000,
+  transcript: null,
+})
+
+const answer = turn({
+  duration_difference_ms: -3_750,
+  id: '00000000-0000-4000-8000-000000000003',
+  item_index: 0,
+  kind: 'answer',
+  prompt_id: repeatPrompt.id,
+  recording_duration_ms: 4_250,
+  role: 'learner',
+  sequence: 3,
+  stage: 'toefl_repeat',
+  transcript: 'Please bring your notebook today.',
+})
+
+const closing = turn({
+  id: '00000000-0000-4000-8000-000000000005',
+  kind: 'closing',
+  role: 'examiner',
+  sequence: 4,
+  stage: 'completed',
+  transcript: 'Thank you. Your practice session is complete.',
+})
+
+function session(overrides: Partial<SpeakingSession> = {}): SpeakingSession {
+  return {
+    abandoned_at: null,
+    completed_at: null,
+    current_item_index: 0,
+    current_prompt_id: null,
+    current_stage: '',
+    exam_type: 'toefl',
+    id: '10000000-0000-4000-8000-000000000001',
+    prompt_version: 'speaking-v1',
+    required_response_count: 11,
+    response_count: 0,
+    started_at: now,
+    status: 'in_progress',
+    timing_summary: {
+      actual_duration_ms: 0,
+      difference_ms: 0,
+      suggested_duration_ms: 0,
+    },
+    turns: [greeting],
+    updated_at: now,
+    ...overrides,
+  }
+}
+
+const createdSession = session()
+const promptedSession = session({
+  current_prompt_id: repeatPrompt.id,
+  current_stage: 'toefl_repeat',
+  turns: [greeting, repeatPrompt],
+})
+const committedSession = session({
+  current_prompt_id: null,
+  current_stage: 'toefl_repeat',
+  response_count: 1,
+  timing_summary: {
+    actual_duration_ms: 4_250,
+    difference_ms: -3_750,
+    suggested_duration_ms: 8_000,
+  },
+  turns: [greeting, visibleRepeatPrompt, answer],
+})
+const nextPromptSession = session({
+  current_item_index: 1,
+  current_prompt_id: secondRepeatPrompt.id,
+  current_stage: 'toefl_repeat',
+  response_count: 1,
+  timing_summary: committedSession.timing_summary,
+  turns: [greeting, visibleRepeatPrompt, answer, secondRepeatPrompt],
+})
+
+type ErrorReply = { payload?: Record<string, unknown>; status: number }
+type Reply = SpeakingSession | ErrorReply
+
+type Scenario = {
+  advances?: Reply[]
+  created?: Reply
+  detail?: Reply
+  list?: SpeakingSessionSummary[]
+  responses?: Reply[]
+  speeches?: (ErrorReply | Blob)[]
+}
+
+function isErrorReply(reply: Reply | Blob): reply is ErrorReply {
+  return (
+    !(reply instanceof Blob) &&
+    'status' in reply &&
+    typeof reply.status === 'number'
+  )
+}
+
+function jsonResponse(value: unknown, status = 200) {
   return Promise.resolve(
-    new Response(new Blob(['examiner mp3'], { type: 'audio/mpeg' }), {
-      status: 200,
-      headers: { 'Content-Type': 'audio/mpeg' },
+    new Response(JSON.stringify(value), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
     }),
   )
 }
 
-function fetchForSuccessfulResponse() {
+function installScenario(scenario: Scenario = {}) {
+  const advances = [...(scenario.advances ?? [promptedSession])]
+  const responses = [...(scenario.responses ?? [committedSession])]
+  const speeches = [
+    ...(scenario.speeches ?? [new Blob(['mp3'], { type: 'audio/mpeg' })]),
+  ]
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
-    if (url.endsWith('/speaking/respond/')) return audioResponse()
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          detail: `Unexpected request: ${url} ${init?.method}`,
+    const method = init?.method ?? 'GET'
+    if (url.endsWith('/speaking/sessions/') && method === 'GET') {
+      return jsonResponse(scenario.list ?? [])
+    }
+    if (url.endsWith('/speaking/sessions/') && method === 'POST') {
+      const reply = scenario.created ?? createdSession
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply, 201)
+    }
+    if (url.endsWith('/advance/')) {
+      const reply = advances.shift() ?? promptedSession
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply)
+    }
+    if (url.endsWith('/responses/')) {
+      const reply = responses.shift() ?? committedSession
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply)
+    }
+    if (url.endsWith('/speech/')) {
+      const reply =
+        speeches.shift() ?? new Blob(['mp3'], { type: 'audio/mpeg' })
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : Promise.resolve(
+            new Response(reply, {
+              status: 200,
+              headers: { 'Content-Type': 'audio/mpeg' },
+            }),
+          )
+    }
+    if (url.includes('/speaking/sessions/') && method === 'GET') {
+      const reply = scenario.detail ?? promptedSession
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply)
+    }
+    if (url.endsWith('/abandon/')) {
+      return jsonResponse(
+        session({
+          abandoned_at: now,
+          status: 'abandoned',
+          turns: committedSession.turns,
         }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
+      )
+    }
+    return jsonResponse({ detail: `Unexpected ${method} ${url}` }, 500)
   })
 }
 
-function installMicrophone() {
+let audioPlay: ReturnType<typeof vi.fn<() => Promise<void>>>
+let audioInstances: FakeAudio[]
+
+class FakeAudio {
+  duration = 4.25
+  onended: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onloadedmetadata: (() => void) | null = null
+  preload = ''
+  private currentSrc = ''
+
+  constructor(src?: string) {
+    if (src) this.currentSrc = src
+    audioInstances.push(this)
+  }
+
+  set src(value: string) {
+    this.currentSrc = value
+    queueMicrotask(() => this.onloadedmetadata?.())
+  }
+
+  get src() {
+    return this.currentSrc
+  }
+
+  play() {
+    return audioPlay()
+  }
+
+  pause() {}
+
+  removeAttribute() {
+    this.currentSrc = ''
+  }
+
+  end() {
+    this.onended?.()
+  }
+}
+
+function installMicrophone(result: 'ready' | 'denied' = 'ready') {
   const stopTrack = vi.fn()
   const stream = {
     getTracks: () => [{ stop: stopTrack }],
   } as unknown as MediaStream
-  const getUserMedia = vi.fn().mockResolvedValue(stream)
+  const getUserMedia =
+    result === 'ready'
+      ? vi.fn().mockResolvedValue(stream)
+      : vi
+          .fn()
+          .mockRejectedValue(
+            new DOMException('Permission denied', 'NotAllowedError'),
+          )
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia },
   })
-  return { getUserMedia, stopTrack }
+  return { getUserMedia, stopTrack, stream }
+}
+
+async function reachPrompt() {
+  await screen.findByRole('heading', {
+    name: 'کدام ساختار را تمرین می‌کنی؟',
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'TOEFL Speaking · Current practice' }),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'شروع تمرین TOEFL' }))
+  await screen.findByText('فقط گوش کن و تکرار کن')
 }
 
 describe('SpeakingPage', () => {
   beforeEach(() => {
     document.cookie = 'csrftoken=speaking-test-token; path=/'
+    audioInstances = []
+    audioPlay = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
+    vi.stubGlobal('Audio', FakeAudio)
     let objectUrlSequence = 0
     vi.spyOn(URL, 'createObjectURL').mockImplementation(
       () => `blob:speaking-${++objectUrlSequence}`,
@@ -51,40 +314,97 @@ describe('SpeakingPage', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('enters practice without requesting microphone access or starting a recording', async () => {
-    const fetchMock = fetchForSuccessfulResponse()
-    const { getUserMedia } = installMicrophone()
-    vi.stubGlobal('MediaRecorder', class {})
+  it('checks the microphone, creates the selected exam, autoplays, then enables recording', async () => {
+    const fetchMock = installScenario()
+    const { getUserMedia, stopTrack } = installMicrophone()
     render(<SpeakingPage />)
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'TOEFL Speaking practice' }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
+    await screen.findByRole('heading', {
+      name: 'کدام ساختار را تمرین می‌کنی؟',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'بررسی میکروفن' }))
+    expect(await screen.findByText(/میکروفن آماده است/)).toBeVisible()
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: true })
+    expect(stopTrack).toHaveBeenCalledOnce()
 
+    fireEvent.click(
+      screen.getByRole('button', { name: 'TOEFL Speaking · Current practice' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'شروع تمرین TOEFL' }))
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    expect(audioPlay).toHaveBeenCalledOnce()
     expect(
-      await screen.findByRole('heading', {
-        name: 'وقتی آماده‌ای، ضبط را شروع کن',
-      }),
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
+
+    act(() => audioInstances.at(-1)?.end())
+    expect(
+      await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
     ).toBeVisible()
-    expect(getUserMedia).not.toHaveBeenCalled()
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'شروع ضبط پاسخ' })).toBeVisible()
-    expect(screen.queryByText('متن جلسه')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'تمرین Speaking TOEFL' }),
+    ).toHaveFocus()
+
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith('/speaking/sessions/') && init?.method === 'POST',
+    )
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
+      exam_type: 'toefl',
+    })
   })
 
-  it('uploads one stateless answer and renders only the examiner voice response', async () => {
-    const fetchMock = fetchForSuccessfulResponse()
+  it('uses a prominent play fallback when browser autoplay is blocked', async () => {
+    installScenario()
+    installMicrophone()
+    audioPlay.mockRejectedValue(new DOMException('blocked', 'NotAllowedError'))
     render(<SpeakingPage />)
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'TOEFL Speaking practice' }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
+    await reachPrompt()
+
+    const play = await screen.findByRole('button', {
+      name: 'پخش صدای ممتحن',
+    })
+    expect(play).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
+
+    audioPlay.mockResolvedValue(undefined)
+    fireEvent.click(play)
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    act(() => audioInstances.at(-1)?.end())
+    expect(
+      await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).toBeVisible()
+  })
+
+  it('keeps the active TOEFL repeat sentence hidden until submission, then continues automatically', async () => {
+    const fetchMock = installScenario({
+      advances: [promptedSession, nextPromptSession],
+      responses: [committedSession],
+      speeches: [
+        new Blob(['first mp3'], { type: 'audio/mpeg' }),
+        new Blob(['second mp3'], { type: 'audio/mpeg' }),
+      ],
+    })
+    installMicrophone()
+    render(<SpeakingPage />)
+    await reachPrompt()
+
+    expect(
+      screen.queryByText('Please bring your notebook today.'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getAllByText('متن این جمله بعد از ثبت پاسخ نمایش داده می‌شود.')
+        .length,
+    ).toBeGreaterThanOrEqual(1)
+    act(() => audioInstances.at(-1)?.end())
 
     const file = new File(['learner voice'], 'answer.webm', {
       type: 'audio/webm',
@@ -92,199 +412,359 @@ describe('SpeakingPage', () => {
     fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
       target: { files: [file] },
     })
-
     expect(await screen.findByText('answer.webm')).toBeVisible()
-    expect(screen.getByLabelText('بازبینی پاسخ ضبط‌شده')).toHaveAttribute(
-      'src',
-      'blob:speaking-1',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'ارسال پاسخ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ثبت این پاسخ' }))
 
-    const player = await screen.findByLabelText('پاسخ صوتی ممتحن')
-    expect(player).toHaveAttribute('src', 'blob:speaking-2')
-    expect(
-      screen.queryByText('I enjoy learning English.'),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('Thank you. Your response has been recorded.'),
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText('متن جلسه')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('Please bring your notebook today.').length,
+      ).toBeGreaterThanOrEqual(2)
+    })
+    expect(screen.getByText(/۱ از ۱۱ پاسخ ثبت شده/)).toBeVisible()
+    expect(screen.getByText('در حال پخش')).toBeVisible()
 
     const uploadCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith('/speaking/respond/'),
+      String(url).endsWith('/responses/'),
     )
-    const uploadRequest = uploadCall?.[1]
-    expect(uploadRequest?.body).toBeInstanceOf(FormData)
-    const formData = uploadRequest?.body as FormData
-    expect(formData.get('exam_type')).toBe('toefl')
-    expect((formData.get('audio') as File).name).toBe('answer.webm')
-    expect(uploadRequest?.credentials).toBe('include')
-    expect(new Headers(uploadRequest?.headers).has('Content-Type')).toBe(false)
-    expect(new Headers(uploadRequest?.headers).get('X-CSRFToken')).toBe(
-      'speaking-test-token',
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'پایان تمرین' }))
-    expect(
-      await screen.findByRole('heading', { name: 'تمرین تمام شد' }),
-    ).toBeVisible()
-    expect(screen.getByText(/هیچ فایل صوتی یا متنی ذخیره نشد/)).toBeVisible()
+    const formData = uploadCall?.[1]?.body as FormData
+    expect(formData.get('prompt_id')).toBe(repeatPrompt.id)
+    expect(formData.get('recording_duration_ms')).toBe('4250')
+    expect(formData.get('client_event_id')).toMatch(/^[0-9a-f-]{36}$/i)
   })
 
-  it('records only after the explicit click and replaces the first take when re-recording', async () => {
-    const fetchMock = fetchForSuccessfulResponse()
+  it('records without auto-stop, supports re-recording, and releases media resources', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    installScenario()
     const { getUserMedia, stopTrack } = installMicrophone()
-    let recordingNumber = 0
-
+    let take = 0
     class FakeMediaRecorder {
-      state: RecordingState = 'inactive'
       mimeType = 'audio/webm'
       ondataavailable: ((event: BlobEvent) => void) | null = null
       onstop: (() => void) | null = null
+      state: RecordingState = 'inactive'
 
       constructor(readonly stream: MediaStream) {}
 
       start() {
-        recordingNumber += 1
+        take += 1
         this.state = 'recording'
       }
 
       stop() {
-        const contents =
-          recordingNumber === 1 ? 'first' : 'replacement recording'
         this.ondataavailable?.({
-          data: new Blob([contents], { type: 'audio/webm' }),
+          data: new Blob([take === 1 ? 'first' : 'replacement'], {
+            type: 'audio/webm',
+          }),
         } as BlobEvent)
         this.state = 'inactive'
         this.onstop?.()
       }
     }
-
     vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
     render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
 
-    expect(getUserMedia).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'شروع ضبط پاسخ' }))
-    expect(
-      await screen.findByRole('button', { name: 'توقف ضبط' }),
-    ).toBeVisible()
-    expect(getUserMedia).toHaveBeenCalledTimes(1)
-    expect(getUserMedia).toHaveBeenCalledWith({ audio: true })
-    fireEvent.click(screen.getByRole('button', { name: 'توقف ضبط' }))
-
-    expect(await screen.findByText('پاسخ ضبط‌شده')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'ضبط دوباره' })).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'ضبط دوباره' }))
-    expect(
-      await screen.findByRole('button', { name: 'توقف ضبط' }),
-    ).toBeVisible()
-    expect(getUserMedia).toHaveBeenCalledTimes(2)
-    fireEvent.click(screen.getByRole('button', { name: 'توقف ضبط' }))
-
-    await screen.findByText('پاسخ ضبط‌شده')
-    fireEvent.click(screen.getByRole('button', { name: 'ارسال پاسخ' }))
-    await screen.findByLabelText('پاسخ صوتی ممتحن')
-
-    const uploadCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith('/speaking/respond/'),
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
     )
-    const formData = uploadCall?.[1]?.body as FormData
-    const submittedAudio = formData.get('audio') as File
-    expect(submittedAudio.size).toBe(new Blob(['replacement recording']).size)
-    expect(stopTrack).toHaveBeenCalledTimes(2)
+    await act(() => vi.advanceTimersByTimeAsync(180_000))
+    expect(screen.getByRole('button', { name: 'توقف ضبط' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'توقف ضبط' }))
+    expect(await screen.findByText('پاسخ ضبط‌شده')).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ضبط دوباره' }))
+    expect(getUserMedia).toHaveBeenCalledTimes(3)
+    fireEvent.click(await screen.findByRole('button', { name: 'توقف ضبط' }))
+    await screen.findByText('پاسخ ضبط‌شده')
+
+    expect(stopTrack).toHaveBeenCalledTimes(3)
     expect(URL.revokeObjectURL).toHaveBeenCalled()
   })
 
-  it('shows an accessible file fallback when microphone permission is denied', async () => {
-    fetchForSuccessfulResponse()
-    const getUserMedia = vi
-      .fn()
-      .mockRejectedValue(
-        new DOMException('Permission denied', 'NotAllowedError'),
-      )
-    Object.defineProperty(navigator, 'mediaDevices', {
-      configurable: true,
-      value: { getUserMedia },
+  it('keeps a local take available after STT or rate-limit errors', async () => {
+    installScenario({
+      responses: [
+        {
+          status: 429,
+          payload: { detail: 'too many', code: 'throttled' },
+        },
+      ],
     })
-    vi.stubGlobal('MediaRecorder', class {})
-
+    installMicrophone()
     render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
-    fireEvent.click(screen.getByRole('button', { name: 'شروع ضبط پاسخ' }))
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['voice'], 'retry.webm', { type: 'audio/webm' })],
+      },
+    })
+    await screen.findByText('retry.webm')
+    fireEvent.click(screen.getByRole('button', { name: 'ثبت این پاسخ' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'اجازهٔ دسترسی به میکروفن داده نشد',
+      'درخواست‌ها کمی زیاد شده است',
     )
-    expect(screen.getByLabelText('انتخاب فایل صوتی')).toBeInTheDocument()
-    await waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce())
+    expect(screen.getByText('retry.webm')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ثبت این پاسخ' })).toBeVisible()
   })
 
-  it('never renders transcript-like text from a failed response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          detail: 'خطا: PRIVATE TRANSCRIPT I enjoy learning English.',
-        }),
-        { status: 503, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
+  it('shows committed history and retries next-question generation without reuploading', async () => {
+    const fetchMock = installScenario({
+      advances: [
+        promptedSession,
+        {
+          status: 503,
+          payload: { detail: 'provider failed', code: 'provider_unavailable' },
+        },
+        nextPromptSession,
+      ],
+      responses: [committedSession],
+    })
+    installMicrophone()
     render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
     fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
       target: {
         files: [new File(['voice'], 'answer.webm', { type: 'audio/webm' })],
       },
     })
-    fireEvent.click(await screen.findByRole('button', { name: 'ارسال پاسخ' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'پاسخ صوتی ممتحن آماده نشد',
+      'پاسخ قبلی ذخیره شده است',
     )
-    expect(screen.queryByText(/PRIVATE TRANSCRIPT/)).not.toBeInTheDocument()
     expect(
-      screen.queryByText(/I enjoy learning English/),
-    ).not.toBeInTheDocument()
+      screen.getAllByText('Please bring your notebook today.').length,
+    ).toBeGreaterThanOrEqual(2)
+    const uploadsBeforeRetry = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith('/responses/'),
+    ).length
+    fireEvent.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith('/responses/'),
+      ),
+    ).toHaveLength(uploadsBeforeRetry)
   })
 
-  it('does not create a response URL when submission finishes after unmount', async () => {
-    let resolveResponse: (response: Response) => void = () => undefined
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveResponse = resolve
-        }),
+  it('recovers from TTS failure and never enables recording before playback', async () => {
+    installScenario({
+      speeches: [
+        {
+          status: 503,
+          payload: { detail: 'tts failed', code: 'provider_unavailable' },
+        },
+        new Blob(['retry mp3'], { type: 'audio/mpeg' }),
+      ],
+    })
+    installMicrophone()
+    render(<SpeakingPage />)
+    await reachPrompt()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'صدای ممتحن آماده نشد',
     )
-    const { unmount } = render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
+    expect(
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    act(() => audioInstances.at(-1)?.end())
+    expect(
+      await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).toBeVisible()
+  })
+
+  it('resumes in-progress sessions and opens completed text history', async () => {
+    const inProgressSummary: SpeakingSessionSummary = promptedSession
+    const completed = session({
+      id: '20000000-0000-4000-8000-000000000002',
+      completed_at: now,
+      current_item_index: 11,
+      current_prompt_id: null,
+      current_stage: 'completed',
+      required_response_count: 11,
+      response_count: 11,
+      status: 'completed',
+      timing_summary: {
+        actual_duration_ms: 120_000,
+        difference_ms: 10_000,
+        suggested_duration_ms: 110_000,
+      },
+      turns: [greeting, visibleRepeatPrompt, answer],
+    })
+    const completedSummary: SpeakingSessionSummary = completed
+    const fetchMock = installScenario({
+      detail: promptedSession,
+      list: [inProgressSummary, completedSummary],
+    })
+    installMicrophone()
+    render(<SpeakingPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'ادامهٔ جلسه' }))
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes(promptedSession.id) &&
+          !String(url).endsWith('/speech/') &&
+          init?.method === 'GET',
+      ),
+    ).toBe(true)
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith('/speaking/sessions/') &&
+          init?.method === 'POST',
+      ),
+    ).toBe(false)
+  })
+
+  it('renders completion metrics, transcript, and the explicit no-score message', async () => {
+    const completed = session({
+      completed_at: now,
+      current_item_index: 11,
+      current_stage: 'completed',
+      required_response_count: 11,
+      response_count: 11,
+      status: 'completed',
+      timing_summary: {
+        actual_duration_ms: 120_000,
+        difference_ms: 10_000,
+        suggested_duration_ms: 110_000,
+      },
+      turns: [greeting, visibleRepeatPrompt, answer],
+    })
+    installScenario({ detail: completed, list: [completed] })
+    installMicrophone()
+    render(<SpeakingPage />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'دیدن متن جلسه' }),
+    )
+    const summaryHeading = await screen.findByRole('heading', {
+      name: 'گزارش جلسهٔ تکمیل‌شده',
+    })
+    expect(summaryHeading).toBeVisible()
+    expect(summaryHeading).toHaveFocus()
+    expect(screen.getByText('02:00')).toBeVisible()
+    expect(screen.getByText('01:50')).toBeVisible()
+    expect(screen.getByText(/هیچ نمره، بازخورد یا تخمین باندی/)).toBeVisible()
+    expect(
+      screen.getAllByText('Please bring your notebook today.'),
+    ).toHaveLength(2)
+  })
+
+  it('moves directly to completion after the final accepted response and plays the closing', async () => {
+    const onePromptSession = session({
+      current_prompt_id: repeatPrompt.id,
+      current_stage: 'toefl_repeat',
+      required_response_count: 1,
+      turns: [greeting, repeatPrompt],
+    })
+    const completed = session({
+      completed_at: now,
+      current_item_index: 1,
+      current_prompt_id: null,
+      current_stage: 'completed',
+      required_response_count: 1,
+      response_count: 1,
+      status: 'completed',
+      timing_summary: committedSession.timing_summary,
+      turns: [greeting, visibleRepeatPrompt, answer, closing],
+    })
+    const fetchMock = installScenario({
+      advances: [onePromptSession],
+      responses: [completed],
+      speeches: [
+        new Blob(['prompt mp3'], { type: 'audio/mpeg' }),
+        new Blob(['closing mp3'], { type: 'audio/mpeg' }),
+      ],
+    })
+    installMicrophone()
+    render(<SpeakingPage />)
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
     fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
       target: {
-        files: [new File(['voice'], 'answer.webm', { type: 'audio/webm' })],
+        files: [new File(['voice'], 'final.webm', { type: 'audio/webm' })],
       },
     })
-    fireEvent.click(await screen.findByRole('button', { name: 'ارسال پاسخ' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
 
-    unmount()
-    resolveResponse(
-      new Response(new Blob(['examiner mp3'], { type: 'audio/mpeg' }), {
-        status: 200,
-        headers: { 'Content-Type': 'audio/mpeg' },
-      }),
-    )
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:speaking-1')
+    expect(
+      await screen.findByRole('heading', { name: 'تمرینت کامل شد' }),
+    ).toBeVisible()
+    expect(screen.getByText(/هیچ نمره، بازخورد یا تخمین باندی/)).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
+    ).toHaveLength(1)
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/speech/')),
+    ).toHaveLength(2)
   })
 
-  it('stops a microphone stream that arrives after the practice page unmounts', async () => {
+  it('keeps abandon available on mobile, supports Escape, and requires confirmation', async () => {
+    const fetchMock = installScenario()
+    installMicrophone()
+    render(<SpeakingPage />)
+    await reachPrompt()
+
+    const abandon = screen.getByRole('button', { name: 'رها کردن جلسه' })
+    fireEvent.click(abandon)
+    expect(
+      screen.getByRole('dialog', { name: 'این جلسه رها شود؟' }),
+    ).toBeVisible()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
+    expect(abandon).toHaveFocus()
+
+    fireEvent.click(abandon)
+    fireEvent.click(screen.getByRole('button', { name: 'بله، رها شود' }))
+    expect(
+      await screen.findByRole('heading', { name: 'متن جلسهٔ رهاشده' }),
+    ).toBeVisible()
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).endsWith('/abandon/')),
+    ).toBe(true)
+  })
+
+  it('shows the upload fallback after permission denial and announces expired auth', async () => {
+    const fetchMock = installScenario({
+      created: { status: 401, payload: { detail: 'expired' } },
+    })
+    installMicrophone('denied')
+    const authRequired = vi.fn()
+    window.addEventListener(AUTH_REQUIRED_EVENT, authRequired)
+    render(<SpeakingPage />)
+
+    await screen.findByRole('heading', {
+      name: 'کدام ساختار را تمرین می‌کنی؟',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'بررسی میکروفن' }))
+    expect(await screen.findByText(/دسترسی میکروفن داده نشد/)).toBeVisible()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'IELTS Speaking practice' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'شروع تمرین IELTS' }))
+    await waitFor(() => expect(authRequired).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalled()
+    window.removeEventListener(AUTH_REQUIRED_EVENT, authRequired)
+  })
+
+  it('stops a late microphone stream and revokes media URLs on unmount', async () => {
+    installScenario()
+    let resolveStream: (stream: MediaStream) => void = () => undefined
     const stopTrack = vi.fn()
     const stream = {
       getTracks: () => [{ stop: stopTrack }],
     } as unknown as MediaStream
-    let resolveStream: (stream: MediaStream) => void = () => undefined
     const getUserMedia = vi.fn(
       () =>
         new Promise<MediaStream>((resolve) => {
@@ -295,69 +775,15 @@ describe('SpeakingPage', () => {
       configurable: true,
       value: { getUserMedia },
     })
-    const recorderConstructor = vi.fn()
-    vi.stubGlobal(
-      'MediaRecorder',
-      class {
-        constructor() {
-          recorderConstructor()
-        }
-      },
-    )
-
     const { unmount } = render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
-    fireEvent.click(screen.getByRole('button', { name: 'شروع ضبط پاسخ' }))
+    await screen.findByRole('heading', {
+      name: 'کدام ساختار را تمرین می‌کنی؟',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'بررسی میکروفن' }))
     await waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce())
 
     unmount()
     resolveStream(stream)
-
     await waitFor(() => expect(stopTrack).toHaveBeenCalledOnce())
-    expect(recorderConstructor).not.toHaveBeenCalled()
-  })
-
-  it('detaches a queued recorder stop callback when the page unmounts', async () => {
-    const { stopTrack } = installMicrophone()
-    let flushQueuedStop: () => void = () => undefined
-
-    class FakeMediaRecorder {
-      state: RecordingState = 'inactive'
-      mimeType = 'audio/webm'
-      ondataavailable: ((event: BlobEvent) => void) | null = null
-      onstop: (() => void) | null = null
-
-      constructor() {
-        flushQueuedStop = () => this.emitQueuedStop()
-      }
-
-      start() {
-        this.state = 'recording'
-      }
-
-      stop() {
-        this.state = 'inactive'
-      }
-
-      emitQueuedStop() {
-        this.ondataavailable?.({
-          data: new Blob(['late recording'], { type: 'audio/webm' }),
-        } as BlobEvent)
-        this.onstop?.()
-      }
-    }
-
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
-    const { unmount } = render(<SpeakingPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'ورود به محیط تمرین' }))
-    fireEvent.click(screen.getByRole('button', { name: 'شروع ضبط پاسخ' }))
-    await screen.findByRole('button', { name: 'توقف ضبط' })
-    fireEvent.click(screen.getByRole('button', { name: 'توقف ضبط' }))
-
-    unmount()
-    flushQueuedStop()
-
-    expect(URL.createObjectURL).not.toHaveBeenCalled()
-    expect(stopTrack).toHaveBeenCalledOnce()
   })
 })

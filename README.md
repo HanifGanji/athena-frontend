@@ -44,13 +44,19 @@ reset disposable local SQLite or Docker PostgreSQL data as described in the
 backend README, rerun migrations, and reseed the Reading demo before registering
 through the UI.
 
-The authenticated `/speaking` practice workspace offers an explicit
-record/stop flow for IELTS or TOEFL practice, lets the learner review or
-re-record locally before sending, and plays only the AI-generated examiner
-voice reply. The learner audio and its transient transcription are not saved or
-returned to the browser. Audio-file upload remains available as a quiet
-microphone fallback. This demo route needs request throttling before public,
-paid-provider use.
+The authenticated `/speaking` experience provides complete, resumable IELTS
+and current-format TOEFL sessions. It checks microphone access, plays each
+saved examiner turn, keeps recording disabled until playback finishes, and
+offers an explicit record, review, discard, re-record, or audio-file fallback
+before submission. Recording never auto-stops; accepted duration is measured
+and compared with Athena's suggested timing without scoring the learner.
+
+Committed English turns persist in a responsive transcript and recent-session
+history. An active TOEFL Listen and Repeat sentence stays hidden until the
+response is submitted. Navigation preserves in-progress sessions, while a
+separate confirmed action abandons them. Audio is sent transiently for STT/TTS
+and never stored; the English transcript and session timing are saved. Provider,
+authentication, and rate-limit failures expose nearby recoverable actions.
 
 Useful checks:
 
