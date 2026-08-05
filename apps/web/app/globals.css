@@ -1,6 +1,21 @@
 @import 'tailwindcss';
 
 :root {
+  --athena-canvas: #f4f1e8;
+  --athena-workspace: #edf1ed;
+  --athena-paper: #fffdf8;
+  --athena-ink: #18302d;
+  --athena-teal: #155e57;
+  --athena-muted: #52625f;
+  --athena-rust: #a14e32;
+  --athena-rust-dark: #78351f;
+  --athena-coral: #f0ac87;
+  --athena-mint: #dcebe5;
+  --athena-sand: #ece8dc;
+  --athena-peach: #f3dfd6;
+  --athena-peach-border: #ddb7a6;
+  --athena-border: rgb(24 48 45 / 12%);
+  --athena-border-strong: rgb(21 94 87 / 30%);
   background: #f4f1e8;
   color: #18302d;
   font-synthesis: none;
@@ -27,4 +42,12 @@ a {
 ::selection {
   background: #f0ac87;
   color: #18302d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
 }
