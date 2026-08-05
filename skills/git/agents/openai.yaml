@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Contribution"
+  short_description: "Contribute through reviewed squash merges"
+  default_prompt: "Use $git to contribute this change through a pull request."

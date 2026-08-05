@@ -30,3 +30,19 @@ npx --yes pnpm@11.17.0 build
 
 Keep this file and `README.md` maintained as commands, tooling, or structure
 change.
+
+## Project skills
+
+- [Git Contribution](skills/git/SKILL.md): Use for branches, commits, pull
+  requests, merges, and post-merge branch cleanup.
+- [UI/UX Pro Max](skills/ui-ux-pro-max/SKILL.md): Use for frontend UI design,
+  implementation, refactoring, accessibility, responsive behavior, motion, or
+  visual-quality reviews.
+- [Apple Design](skills/apple-design/SKILL.md): Use for UI/UX audits and design
+  reviews grounded in Apple Human Interface Guidelines, especially when
+  reviewing screenshots, mockups, mobile/desktop conventions, or
+  accessibility.
+
+Read a selected skill's complete `SKILL.md` before acting, and resolve its
+relative references from that skill's directory. The vendored source revisions
+and licensing notes are recorded in `skills/README.md`.
