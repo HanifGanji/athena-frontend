@@ -2,16 +2,19 @@
 
 import { useEffect, useRef } from 'react'
 
-import type { SpeakingSession } from '@/lib/speaking-api'
+import type { SpeakingFeedback, SpeakingSession } from '@/lib/speaking-api'
 
+import { SpeakingFeedbackPanel } from './speaking-feedback'
 import { CheckIcon, HistoryIcon } from './speaking-icons'
 import { SpeakingTranscript, formatDuration } from './speaking-transcript'
 
 type SpeakingSummaryProps = {
+  cachedFeedback?: SpeakingFeedback | null
   historyMode?: boolean
   onBack: () => void
   onStartAnother: () => void
   onPlayClosing?: () => void
+  onFeedbackLoaded?: (feedback: SpeakingFeedback) => void
   onRetrySpeech?: () => void
   session: SpeakingSession
   speechError?: string | null
@@ -35,8 +38,10 @@ function differenceLabel(milliseconds: number) {
 }
 
 export function SpeakingSummary({
+  cachedFeedback = null,
   historyMode = false,
   onBack,
+  onFeedbackLoaded,
   onPlayClosing,
   onRetrySpeech,
   onStartAnother,
@@ -94,9 +99,25 @@ export function SpeakingSummary({
               {dateLabel(session)} ·{' '}
               {session.response_count.toLocaleString('fa-IR')} پاسخ ثبت‌شده
             </p>
+            {session.topic_labels.length > 0 && (
+              <div
+                dir="ltr"
+                lang="en"
+                className="mt-4 flex flex-wrap gap-2 text-left"
+              >
+                {session.topic_labels.map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-lg border border-white/15 bg-white/8 px-2.5 py-1 text-[10px] font-bold text-[#dce7e4]"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="mt-7 rounded-2xl border border-white/10 bg-black/10 p-4 text-sm leading-7 text-[#dce7e4]">
-              هیچ نمره، بازخورد یا تخمین باندی محاسبه نشده است. این گزارش فقط
-              متن و زمان پاسخ‌های پذیرفته‌شده را نشان می‌دهد.
+              هیچ نمره، تخمین باند یا تشخیص سطحی محاسبه نمی‌شود. بازخورد این
+              صفحه فقط برای تمرین بعدی است.
             </div>
             {speechReady && onPlayClosing && (
               <button
@@ -163,6 +184,14 @@ export function SpeakingSummary({
         </section>
 
         <SpeakingTranscript session={session} compact />
+
+        {completed && onFeedbackLoaded && (
+          <SpeakingFeedbackPanel
+            cachedFeedback={cachedFeedback}
+            sessionId={session.id}
+            onLoaded={onFeedbackLoaded}
+          />
+        )}
 
         <div className="grid gap-3 py-7 sm:grid-cols-2">
           <button

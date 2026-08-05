@@ -51,6 +51,7 @@ export type SpeakingSessionSummary = {
   current_item_index: number
   required_response_count: number
   response_count: number
+  topic_labels: string[]
   timing_summary: SpeakingTimingSummary
   started_at: string
   updated_at: string
@@ -72,26 +73,56 @@ export type SpeakingResponseInput = {
   recordingDurationMs: number
 }
 
-export const speakingApi = {
-  listSessions: () =>
-    apiRequest<SpeakingSessionSummary[]>('/speaking/sessions/'),
+export type SpeakingFeedbackStrength = {
+  title: string
+  evidence: string
+}
 
-  createSession: (examType: SpeakingExamType) =>
+export type SpeakingFeedbackImprovement = {
+  learner_excerpt: string
+  improved_version: string
+  explanation: string
+}
+
+export type SpeakingFeedbackNextGoal = {
+  title: string
+  practice: string
+}
+
+export type SpeakingFeedback = {
+  session_id: string
+  strengths: SpeakingFeedbackStrength[]
+  improvements: SpeakingFeedbackImprovement[]
+  next_goal: SpeakingFeedbackNextGoal
+  generated_at: string
+}
+
+export const speakingApi = {
+  listSessions: (signal?: AbortSignal) =>
+    apiRequest<SpeakingSessionSummary[]>('/speaking/sessions/', { signal }),
+
+  createSession: (examType: SpeakingExamType, signal?: AbortSignal) =>
     apiRequest<SpeakingSession>('/speaking/sessions/', {
       method: 'POST',
       body: jsonBody({ exam_type: examType }),
+      signal,
     }),
 
-  getSession: (sessionId: string) =>
-    apiRequest<SpeakingSession>(`/speaking/sessions/${sessionId}/`),
+  getSession: (sessionId: string, signal?: AbortSignal) =>
+    apiRequest<SpeakingSession>(`/speaking/sessions/${sessionId}/`, { signal }),
 
-  advance: (sessionId: string) =>
+  advance: (sessionId: string, signal?: AbortSignal) =>
     apiRequest<SpeakingSession>(`/speaking/sessions/${sessionId}/advance/`, {
       method: 'POST',
       body: jsonBody({}),
+      signal,
     }),
 
-  submitResponse: (sessionId: string, input: SpeakingResponseInput) => {
+  submitResponse: (
+    sessionId: string,
+    input: SpeakingResponseInput,
+    signal?: AbortSignal,
+  ) => {
     const formData = new FormData()
     formData.append('audio', input.audio, input.filename)
     formData.append('prompt_id', input.promptId)
@@ -99,19 +130,27 @@ export const speakingApi = {
     formData.append('recording_duration_ms', String(input.recordingDurationMs))
     return apiRequest<SpeakingSession>(
       `/speaking/sessions/${sessionId}/responses/`,
-      { method: 'POST', body: formData },
+      { method: 'POST', body: formData, signal },
     )
   },
 
-  getSpeech: (sessionId: string, turnId: string) =>
+  getSpeech: (sessionId: string, turnId: string, signal?: AbortSignal) =>
     apiRequest<Blob>(
       `/speaking/sessions/${sessionId}/turns/${turnId}/speech/`,
-      { method: 'POST', body: jsonBody({}), responseType: 'blob' },
+      { method: 'POST', body: jsonBody({}), responseType: 'blob', signal },
     ),
 
-  abandon: (sessionId: string) =>
+  abandon: (sessionId: string, signal?: AbortSignal) =>
     apiRequest<SpeakingSession>(`/speaking/sessions/${sessionId}/abandon/`, {
       method: 'POST',
       body: jsonBody({}),
+      signal,
+    }),
+
+  getOrCreateFeedback: (sessionId: string, signal?: AbortSignal) =>
+    apiRequest<SpeakingFeedback>(`/speaking/sessions/${sessionId}/feedback/`, {
+      method: 'POST',
+      body: jsonBody({}),
+      signal,
     }),
 }
