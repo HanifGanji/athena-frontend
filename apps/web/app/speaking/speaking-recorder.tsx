@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SpeakingTurn } from '@/lib/speaking-api'
 
 import type { SpeakingPhase } from './speaking-machine'
+import type { SpeakingPhaseView } from './speaking-machine'
 import { MicrophoneIcon, Spinner, StopIcon, UploadIcon } from './speaking-icons'
 import { formatDuration } from './speaking-transcript'
 
@@ -20,15 +21,17 @@ export type PreparedTake = {
 }
 
 type SpeakingRecorderProps = {
+  answerCommitted: boolean
   error: string | null
+  longWait: boolean
   onDiscard: () => void
   onError: (message: string) => void
   onPhase: (phase: SpeakingPhase) => void
   onPrepared: (take: PreparedTake) => void
   onSubmit: () => void
-  phase: SpeakingPhase
   prepared: PreparedTake | null
   prompt: SpeakingTurn | null
+  view: SpeakingPhaseView
 }
 
 function recordingFilename(mimeType: string) {
@@ -61,15 +64,17 @@ function metadataDuration(file: File) {
 }
 
 export function SpeakingRecorder({
+  answerCommitted,
   error,
+  longWait,
   onDiscard,
   onError,
   onPhase,
   onPrepared,
   onSubmit,
-  phase,
   prepared,
   prompt,
+  view,
 }: SpeakingRecorderProps) {
   const [elapsedMs, setElapsedMs] = useState(0)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -78,6 +83,7 @@ export function SpeakingRecorder({
   const startedAtRef = useRef<number | null>(null)
   const mountedRef = useRef(true)
   const discardRef = useRef(false)
+  const errorRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   function stopTracks() {
@@ -100,7 +106,11 @@ export function SpeakingRecorder({
   }, [])
 
   useEffect(() => {
-    if (phase !== 'recording') return
+    if (error) errorRef.current?.focus()
+  }, [error])
+
+  useEffect(() => {
+    if (view.recorderMode !== 'recording') return
     const update = () => {
       if (startedAtRef.current !== null) {
         setElapsedMs(
@@ -111,12 +121,10 @@ export function SpeakingRecorder({
     update()
     const interval = window.setInterval(update, 200)
     return () => window.clearInterval(interval)
-  }, [phase])
+  }, [view.recorderMode])
 
   async function startRecording() {
-    if (
-      !['ready_to_record', 'local_review', 'recoverable_error'].includes(phase)
-    ) {
+    if (!['ready', 'review', 'error'].includes(view.recorderMode)) {
       return
     }
     if (
@@ -231,28 +239,33 @@ export function SpeakingRecorder({
     }
   }
 
-  const reviewVisible =
-    prepared && ['local_review', 'recoverable_error'].includes(phase)
+  const reviewVisible = prepared && (view.showPreparedTake || answerCommitted)
   const waiting = [
-    'requesting_permission',
-    'stopping_recording',
+    'permission',
+    'preparing_take',
     'submitting',
-  ].includes(phase)
-  const recorderReady = phase === 'ready_to_record'
+    'waiting_next',
+  ].includes(view.recorderMode)
+  const recorderReady = view.recorderMode === 'ready'
   const suggested = prompt?.suggested_duration_ms ?? 0
+  const canEditTake =
+    !answerCommitted && ['review', 'error'].includes(view.recorderMode)
 
   return (
     <section
       aria-labelledby="recorder-title"
-      className="rounded-[1.75rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] p-5 shadow-[0_18px_55px_rgba(24,48,45,0.07)] sm:p-7"
+      className="rounded-t-[1.4rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] p-3 shadow-[0_-12px_40px_rgba(24,48,45,0.12)] lg:rounded-[1.75rem] lg:p-7 lg:shadow-[0_18px_55px_rgba(24,48,45,0.07)]"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <h2 id="recorder-title" className="sr-only">
+        کنترل پاسخ
+      </h2>
+      <div className="hidden flex-wrap items-start justify-between gap-3 lg:flex">
         <div>
           <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--athena-rust)]">
             YOUR RESPONSE
           </p>
-          <h2 id="recorder-title" className="mt-1 text-xl font-black">
-            {phase === 'recording'
+          <h2 className="mt-1 text-xl font-black">
+            {view.recorderMode === 'recording'
               ? 'آزادانه صحبت کن'
               : reviewVisible
                 ? 'پاسخت را بررسی کن'
@@ -270,26 +283,28 @@ export function SpeakingRecorder({
 
       {error && (
         <div
+          ref={errorRef}
           role="alert"
-          className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-7 text-red-800"
+          tabIndex={-1}
+          className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-7 text-red-800 outline-none lg:mt-5 lg:mb-0 lg:rounded-2xl"
         >
           {error}
         </div>
       )}
 
       {recorderReady && (
-        <div className="mt-7 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <div className="sticky bottom-0 z-20 -mx-3 -mb-3 grid grid-cols-[1fr_auto] gap-2 border-t border-[var(--athena-border)] bg-[var(--athena-paper)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_32px_rgba(24,48,45,0.12)] lg:static lg:mx-0 lg:mb-0 lg:mt-7 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
           <button
             type="button"
             onClick={startRecording}
-            className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[var(--athena-teal)] px-6 py-4 text-sm font-black text-white shadow-lg shadow-[#155e57]/15 transition hover:-translate-y-0.5 hover:bg-[#104b46] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] motion-reduce:transform-none"
+            className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[var(--athena-teal)] px-4 py-3 text-sm font-black text-white shadow-lg shadow-[#155e57]/15 transition hover:bg-[#104b46] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] lg:min-h-14 lg:gap-3 lg:rounded-2xl lg:px-6 lg:py-4"
           >
-            <MicrophoneIcon className="size-6" />
+            <MicrophoneIcon className="size-5 lg:size-6" />
             شروع ضبط پاسخ
           </button>
-          <label className="flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-[var(--athena-border-strong)] bg-white px-5 py-4 text-sm font-black transition hover:border-[var(--athena-teal)] hover:bg-[var(--athena-mint)] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-[var(--athena-teal)]">
+          <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[var(--athena-border-strong)] bg-white px-4 py-3 text-sm font-black transition hover:border-[var(--athena-teal)] hover:bg-[var(--athena-mint)] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-[var(--athena-teal)] lg:min-h-14 lg:rounded-2xl lg:px-5 lg:py-4">
             <UploadIcon className="size-5" />
-            فایل صوتی
+            <span className="sr-only sm:not-sr-only">فایل صوتی</span>
             <input
               ref={fileInputRef}
               type="file"
@@ -302,9 +317,9 @@ export function SpeakingRecorder({
         </div>
       )}
 
-      {phase === 'recording' && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between gap-4 rounded-2xl bg-[#fff0ed] px-5 py-4 text-[#8f302c]">
+      {view.recorderMode === 'recording' && (
+        <div className="sticky bottom-0 z-20 -mx-3 -mb-3 border-t border-[var(--athena-border)] bg-[var(--athena-paper)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_32px_rgba(24,48,45,0.12)] lg:static lg:mx-0 lg:mb-0 lg:mt-6 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-[#fff0ed] px-4 py-3 text-[#8f302c] lg:rounded-2xl lg:px-5 lg:py-4">
             <span className="flex items-center gap-2 text-sm font-black">
               <span className="size-3 animate-pulse rounded-full bg-[#b44b42] motion-reduce:animate-none" />
               در حال ضبط
@@ -318,14 +333,14 @@ export function SpeakingRecorder({
               {formatDuration(elapsedMs)} / {formatDuration(suggested)}
             </span>
           </div>
-          <p className="mt-3 text-xs leading-6 text-[var(--athena-muted)]">
+          <p className="mt-3 hidden text-xs leading-6 text-[var(--athena-muted)] lg:block">
             زمان فقط برای مقایسه است؛ ضبط خودکار متوقف نمی‌شود و هیچ جریمه‌ای
             ندارد.
           </p>
           <button
             type="button"
             onClick={() => stopRecording()}
-            className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#9b3f38] px-5 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#9b3f38]"
+            className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#9b3f38] px-5 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#9b3f38] lg:mt-4 lg:rounded-2xl"
           >
             <StopIcon className="size-5" />
             توقف ضبط
@@ -333,32 +348,23 @@ export function SpeakingRecorder({
         </div>
       )}
 
-      {waiting && (
-        <div className="mt-7 flex min-h-28 flex-col items-center justify-center rounded-2xl bg-[var(--athena-mint)] text-center text-[var(--athena-teal)]">
-          <Spinner className="size-6" />
-          <p className="mt-3 text-xs font-bold">
-            {phase === 'submitting'
-              ? 'صدا موقتاً پردازش و متن انگلیسی ثبت می‌شود.'
-              : phase === 'requesting_permission'
-                ? 'درخواست مرورگر برای میکروفن را بررسی کن.'
-                : 'در حال آماده‌سازی فایل صوتی…'}
-          </p>
-        </div>
-      )}
-
       {reviewVisible && prepared && (
-        <div className="mt-6">
-          <div className="rounded-2xl border border-[var(--athena-border-strong)] bg-[var(--athena-mint)] p-4">
-            <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="lg:mt-6">
+          <div className="rounded-xl border border-[var(--athena-border-strong)] bg-[var(--athena-mint)] p-3 lg:rounded-2xl lg:p-4">
+            <div className="mb-2 flex items-center justify-between gap-3 lg:mb-4">
               <div className="min-w-0">
                 <p className="truncate text-sm font-black">{prepared.label}</p>
-                <p className="mt-1 text-[10px] text-[var(--athena-muted)]">
+                <p className="mt-1 hidden text-[10px] text-[var(--athena-muted)] sm:block">
                   مدت ثبت‌شده:{' '}
                   <span dir="ltr">{formatDuration(prepared.durationMs)}</span>
                 </p>
               </div>
               <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-[var(--athena-teal)]">
-                هنوز ارسال نشده
+                {answerCommitted
+                  ? 'پاسخ ثبت شد'
+                  : view.recorderMode === 'submitting'
+                    ? 'در حال ثبت'
+                    : 'هنوز ارسال نشده'}
               </span>
             </div>
             <audio
@@ -368,18 +374,43 @@ export function SpeakingRecorder({
               className="w-full min-w-0"
             />
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {longWait && (
+            <p className="mt-2 text-center text-xs font-black text-[var(--athena-teal)]">
+              {answerCommitted
+                ? 'پاسخ شما ثبت شده است.'
+                : 'ضبط شما روی این دستگاه محفوظ است.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {waiting && (
+        <div className="sticky bottom-0 z-20 -mx-3 -mb-3 border-t border-[var(--athena-border)] bg-[var(--athena-paper)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_32px_rgba(24,48,45,0.12)] lg:static lg:mx-0 lg:mb-0 lg:mt-7 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+          <div className="flex min-h-16 items-center justify-center gap-3 rounded-xl bg-[var(--athena-mint)] px-4 py-3 text-center text-[var(--athena-teal)] lg:min-h-28 lg:flex-col lg:rounded-2xl">
+            <Spinner className="size-5 lg:size-6" />
+            <p className="text-xs font-bold lg:mt-1">
+              {view.recorderMode === 'permission'
+                ? 'صدا برای تبدیل به متن ارسال می‌شود؛ در سابقه فقط متن پاسخ نگه‌داری می‌شود.'
+                : (view.primaryStatus ?? 'در حال آماده‌سازی فایل صوتی…')}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {canEditTake && (
+        <>
+          <div className="sticky bottom-0 z-20 -mx-3 -mb-3 mt-2 grid grid-cols-2 gap-2 border-t border-[var(--athena-border)] bg-[var(--athena-paper)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_32px_rgba(24,48,45,0.12)] lg:static lg:mx-0 lg:mb-0 lg:mt-4 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
             <button
               type="button"
               onClick={onSubmit}
-              className="min-h-12 rounded-2xl bg-[var(--athena-teal)] px-5 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
+              className="min-h-12 rounded-xl bg-[var(--athena-teal)] px-4 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] lg:rounded-2xl lg:px-5"
             >
               ثبت این پاسخ
             </button>
             <button
               type="button"
               onClick={startRecording}
-              className="min-h-12 rounded-2xl border border-[var(--athena-border-strong)] bg-white px-5 py-3 text-sm font-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
+              className="min-h-12 rounded-xl border border-[var(--athena-border-strong)] bg-white px-4 py-3 text-sm font-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] lg:rounded-2xl lg:px-5"
             >
               ضبط دوباره
             </button>
@@ -387,11 +418,11 @@ export function SpeakingRecorder({
           <button
             type="button"
             onClick={onDiscard}
-            className="mx-auto mt-3 block min-h-11 rounded-lg px-3 py-2 text-xs font-black text-[var(--athena-muted)] underline decoration-current/30 underline-offset-4 focus-visible:outline-2 focus-visible:outline-[var(--athena-teal)]"
+            className="mx-auto mt-1 hidden min-h-11 rounded-lg px-3 py-2 text-xs font-black text-[var(--athena-muted)] underline decoration-current/30 underline-offset-4 focus-visible:outline-2 focus-visible:outline-[var(--athena-teal)] lg:block"
           >
             حذف این برداشت
           </button>
-        </div>
+        </>
       )}
     </section>
   )

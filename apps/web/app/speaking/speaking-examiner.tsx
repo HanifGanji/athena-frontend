@@ -1,40 +1,37 @@
+'use client'
+
+import { useEffect, useRef } from 'react'
+
 import type { SpeakingSession, SpeakingTurn } from '@/lib/speaking-api'
 
-import type { SpeakingPhase } from './speaking-machine'
 import { HeadphonesIcon, PlayIcon, Spinner } from './speaking-icons'
+import type { SpeakingPhaseView } from './speaking-machine'
 import { formatDuration, stageLabel } from './speaking-transcript'
 
 type SpeakingExaminerProps = {
   onPlay: () => void
-  phase: SpeakingPhase
   prompt: SpeakingTurn | null
   session: SpeakingSession
   speechUrl: string | null
-}
-
-function phaseText(phase: SpeakingPhase) {
-  if (phase === 'loading_examiner') return 'در حال آماده‌سازی صدا'
-  if (phase === 'playing_examiner') return 'در حال پخش'
-  if (phase === 'examiner_ready') return 'آمادهٔ پخش'
-  if (phase === 'generating_next') return 'در حال ساخت سؤال بعدی'
-  if (phase === 'submitting') return 'در حال تبدیل پاسخ به متن'
-  return 'نوبت شما'
+  view: SpeakingPhaseView
 }
 
 export function SpeakingExaminer({
   onPlay,
-  phase,
   prompt,
   session,
   speechUrl,
+  view,
 }: SpeakingExaminerProps) {
-  const loading = [
-    'loading_examiner',
-    'generating_next',
-    'submitting',
-  ].includes(phase)
-  const canPlay = Boolean(speechUrl) && phase !== 'playing_examiner'
+  const promptRegionRef = useRef<HTMLDivElement | null>(null)
+  const loading = view.examinerMode === 'loading'
+  const playing = view.examinerMode === 'playing'
+  const canPlay = Boolean(speechUrl) && !playing
   const repeatHidden = prompt?.kind === 'repeat_sentence' && prompt.is_hidden
+
+  useEffect(() => {
+    if (prompt && speechUrl) promptRegionRef.current?.focus()
+  }, [prompt, speechUrl])
 
   return (
     <section
@@ -64,21 +61,25 @@ export function SpeakingExaminer({
             <span
               aria-hidden="true"
               className={`size-2 rounded-full ${
-                phase === 'playing_examiner'
+                playing
                   ? 'animate-pulse bg-[#78d7c9] motion-reduce:animate-none'
                   : 'bg-white/40'
               }`}
             />
-            {phaseText(phase)}
+            {view.examinerStatus}
           </span>
         </div>
 
-        <div className="grid min-h-[19rem] place-items-center py-8 text-center sm:min-h-[22rem]">
-          <div className="w-full max-w-2xl">
-            <div className="mx-auto grid size-20 place-items-center rounded-full border border-white/15 bg-white/10 sm:size-24">
+        <div className="grid min-h-[15rem] place-items-center py-7 text-center sm:min-h-[20rem] sm:py-8">
+          <div
+            ref={promptRegionRef}
+            tabIndex={-1}
+            className="w-full max-w-2xl rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-[var(--athena-ink)]"
+          >
+            <div className="mx-auto grid size-16 place-items-center rounded-full border border-white/15 bg-white/10 sm:size-24">
               {loading ? (
                 <Spinner className="size-7" />
-              ) : phase === 'playing_examiner' ? (
+              ) : playing ? (
                 <span
                   className="flex h-8 items-center gap-1"
                   aria-hidden="true"
@@ -101,8 +102,7 @@ export function SpeakingExaminer({
                 <div className="mx-auto mt-6 max-w-lg rounded-2xl border border-dashed border-white/20 bg-black/10 px-5 py-5">
                   <p className="text-sm font-black">فقط گوش کن و تکرار کن</p>
                   <p className="mt-2 text-xs leading-6 text-[#b8c7c3]">
-                    برای وفاداری به ساختار TOEFL، متن جمله بعد از ثبت پاسخت
-                    نمایش داده می‌شود.
+                    متن جمله بعد از ثبت پاسخت نمایش داده می‌شود.
                   </p>
                 </div>
               ) : (
@@ -146,7 +146,7 @@ export function SpeakingExaminer({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-[11px] text-[#b8c7c3]">
-          <p>ضبط تا پایان پخش صدای ممتحن غیرفعال است.</p>
+          <p>ضبط پس از پایان صدای ممتحن فعال می‌شود.</p>
           <p dir="ltr" className="font-mono">
             {session.response_count}/{session.required_response_count} RESPONSES
           </p>

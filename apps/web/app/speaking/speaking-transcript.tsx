@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { SpeakingSession, SpeakingStage } from '@/lib/speaking-api'
 
 type SpeakingTranscriptProps = {
+  autoScroll?: boolean
+  collapsible?: boolean
   compact?: boolean
   session: SpeakingSession
 }
@@ -39,45 +41,57 @@ function timingLabel(actual: number, suggested: number, difference: number) {
 }
 
 export function SpeakingTranscript({
+  autoScroll = false,
+  collapsible = false,
   compact = false,
   session,
 }: SpeakingTranscriptProps) {
-  const endRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const nearBottomRef = useRef(true)
   const promptById = useMemo(
     () => new Map(session.turns.map((turn) => [turn.id, turn])),
     [session.turns],
   )
-  const lastTurn = session.turns.at(-1)
+  const titleId = compact
+    ? 'history-transcript-title'
+    : collapsible
+      ? 'mobile-live-transcript-title'
+      : 'desktop-live-transcript-title'
 
   useEffect(() => {
-    if (compact) return
-    if (typeof endRef.current?.scrollIntoView === 'function') {
-      const reduceMotion = window.matchMedia?.(
-        '(prefers-reduced-motion: reduce)',
-      ).matches
-      endRef.current.scrollIntoView({
-        block: 'nearest',
+    const container = scrollRef.current
+    if (!autoScroll || !nearBottomRef.current || !container) return
+    const reduceMotion = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    ).matches
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({
         behavior: reduceMotion ? 'auto' : 'smooth',
+        top: container.scrollHeight,
       })
+    } else {
+      container.scrollTop = container.scrollHeight
     }
-  }, [compact, session.turns.length])
+  }, [autoScroll, session.turns.length])
 
-  return (
+  const transcript = (
     <section
-      aria-labelledby={
-        compact ? 'history-transcript-title' : 'live-transcript-title'
-      }
+      aria-labelledby={titleId}
       className={
         compact
           ? 'rounded-[1.5rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] p-5 sm:p-7'
-          : 'flex min-h-0 flex-col rounded-[1.5rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] shadow-[0_16px_45px_rgba(24,48,45,0.06)]'
+          : collapsible
+            ? 'border-t border-[var(--athena-border)] bg-[var(--athena-paper)]'
+            : 'flex min-h-0 flex-col rounded-[1.5rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] shadow-[0_16px_45px_rgba(24,48,45,0.06)]'
       }
     >
       <div
         className={
           compact
             ? 'mb-5 flex items-end justify-between gap-3'
-            : 'flex items-end justify-between gap-3 border-b border-[var(--athena-border)] px-5 py-4'
+            : collapsible
+              ? 'sr-only'
+              : 'flex items-end justify-between gap-3 border-b border-[var(--athena-border)] px-5 py-4'
         }
       >
         <div>
@@ -85,7 +99,7 @@ export function SpeakingTranscript({
             ENGLISH TRANSCRIPT
           </p>
           <h2
-            id={compact ? 'history-transcript-title' : 'live-transcript-title'}
+            id={collapsible ? undefined : titleId}
             className="mt-1 text-lg font-black"
           >
             متن جلسه
@@ -96,17 +110,20 @@ export function SpeakingTranscript({
         </span>
       </div>
 
-      <p className="sr-only" aria-live="polite" aria-atomic="true">
-        {lastTurn
-          ? `یک نوبت جدید از ${lastTurn.role === 'examiner' ? 'ممتحن' : 'شما'} ثبت شد.`
-          : ''}
-      </p>
-
       <div
+        ref={scrollRef}
+        onScroll={(event) => {
+          const element = event.currentTarget
+          nearBottomRef.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight <=
+            80
+        }}
         className={
           compact
             ? 'space-y-4'
-            : 'min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 lg:max-h-[calc(100svh-13rem)]'
+            : collapsible
+              ? 'max-h-[55svh] space-y-4 overflow-y-auto px-3 py-4'
+              : 'min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 lg:max-h-[calc(100svh-13rem)]'
         }
         dir="ltr"
         lang="en"
@@ -172,8 +189,21 @@ export function SpeakingTranscript({
             </article>
           )
         })}
-        <div ref={endRef} />
       </div>
     </section>
+  )
+
+  if (!collapsible) return transcript
+
+  return (
+    <details className="overflow-hidden rounded-2xl border border-[var(--athena-border)] bg-[var(--athena-paper)]">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--athena-teal)]">
+        <span id={titleId}>گفت‌وگو تا اینجا</span>
+        <span className="text-xs text-[var(--athena-muted)]">
+          {session.turns.length.toLocaleString('fa-IR')} نوبت
+        </span>
+      </summary>
+      {transcript}
+    </details>
   )
 }
