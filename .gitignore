@@ -9,6 +9,8 @@ dist/
 build/
 .turbo/
 coverage/
+__pycache__/
+*.py[cod]
 
 # Generated TypeScript files
 *.tsbuildinfo

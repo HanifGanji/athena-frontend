@@ -65,4 +65,20 @@ npx --yes pnpm@11.17.0 build
 `apps/web` contains the web app. `packages/` contains shared tooling
 configuration.
 
+## Project design skills
+
+The repository vendors two shared design skills under `skills/` so every
+developer and coding agent receives the same guidance:
+
+- `skills/ui-ux-pro-max/` provides searchable UI/UX design intelligence and
+  Next.js-specific implementation guidance.
+- `skills/apple-design/` provides design-review workflows and cross-platform
+  Human Interface Guidelines references.
+
+The repository-local `skills/git/` skill defines the required pull request,
+squash-merge, and source-branch cleanup workflow.
+
+Their usage triggers are registered in `AGENTS.md`; source revisions and
+licensing notes are documented in `skills/README.md`.
+
 Keep this README and `AGENTS.md` current when setup or workflows change.

@@ -5,3 +5,4 @@ dist/
 node_modules/
 out/
 pnpm-lock.yaml
+skills/
