@@ -625,6 +625,7 @@ export function WritingWorkspace() {
   const [submitting, setSubmitting] = useState(false)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [planSaving, setPlanSaving] = useState(false)
+  const [pausingAttempt, setPausingAttempt] = useState(false)
   const [resumingAttemptId, setResumingAttemptId] = useState<string | null>(
     null,
   )
@@ -635,6 +636,7 @@ export function WritingWorkspace() {
   const [reviewing, setReviewing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [resumeNotice, setResumeNotice] = useState<string | null>(null)
   const [conflict, setConflict] = useState<DraftConflict | null>(null)
 
   const attemptRef = useRef<WritingAttempt | null>(null)
@@ -732,6 +734,7 @@ export function WritingWorkspace() {
     setFeedback(null)
     setConflict(null)
     setSaveError(null)
+    setResumeNotice(null)
     setReviewing(false)
     setElapsedSeconds(0)
     setRewriteFocus(nextRewriteFocus)
@@ -888,6 +891,66 @@ export function WritingWorkspace() {
     await Promise.all(saves)
   }
 
+  useEffect(() => {
+    const saveLatestDraftsWhenHidden = () => {
+      const currentAttempt = attemptRef.current
+      if (
+        !document.hidden ||
+        !currentAttempt ||
+        currentAttempt.status !== 'in_progress' ||
+        conflict
+      ) {
+        return
+      }
+      for (const task of currentAttempt.tasks) {
+        const timer = saveTimers.current.get(task.id)
+        if (timer) window.clearTimeout(timer)
+        saveTimers.current.delete(task.id)
+        void persistDraft(
+          task.id,
+          draftsRef.current[task.id] ?? '',
+          'autosave',
+        ).catch(() => undefined)
+      }
+    }
+
+    document.addEventListener('visibilitychange', saveLatestDraftsWhenHidden)
+    return () =>
+      document.removeEventListener(
+        'visibilitychange',
+        saveLatestDraftsWhenHidden,
+      )
+  }, [conflict, persistDraft])
+
+  useEffect(() => {
+    const currentAttempt = attemptRef.current
+    if (!currentAttempt || currentAttempt.status !== 'in_progress') return
+
+    const draftChanged = currentAttempt.tasks.some(
+      (task) =>
+        (draftsRef.current[task.id] ?? '') !==
+        (savedTextRef.current.get(task.id) ?? ''),
+    )
+    const planChanged = currentAttempt.tasks.some((task) =>
+      task.prompt.planning_questions.some((question) => {
+        const savedEntry = task.plan?.entries.find(
+          (entry) => entry.question_id === question.id,
+        )
+        return (
+          (planDrafts[question.id] ?? '') !== (savedEntry?.text_content ?? '')
+        )
+      }),
+    )
+    if (!draftChanged && !planChanged && pendingSaves === 0) return
+
+    const protectUnsavedWork = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', protectUnsavedWork)
+    return () => window.removeEventListener('beforeunload', protectUnsavedWork)
+  }, [attempt, drafts, pendingSaves, planDrafts])
+
   async function confirmSubmission() {
     const currentAttempt = attemptRef.current
     if (!currentAttempt || conflict) return
@@ -943,40 +1006,113 @@ export function WritingWorkspace() {
     }
   }
 
-  async function completeGuidedPlan() {
+  async function persistGuidedPlan(
+    task: WritingAttempt['tasks'][number],
+    markComplete: boolean,
+  ) {
     const currentAttempt = attemptRef.current
-    const task = currentAttempt?.tasks.find((item) => item.id === activeTaskId)
-    if (!currentAttempt || !task || !task.plan) return
+    if (!currentAttempt || task.prompt.planning_questions.length === 0) return
+    const payload = await writingApi.savePlan(currentAttempt.id, task.id, {
+      expected_revision_number: task.plan?.revision_number ?? 0,
+      entries: task.prompt.planning_questions.map((question) => ({
+        question_id: question.id,
+        text: planDrafts[question.id] ?? '',
+      })),
+      mark_complete: markComplete,
+    })
+    setAttempt((current) => {
+      if (!current) return current
+      const next = {
+        ...current,
+        tasks: current.tasks.map((item) =>
+          item.id === task.id ? { ...item, plan: payload.plan } : item,
+        ),
+      }
+      attemptRef.current = next
+      return next
+    })
+  }
+
+  async function completeGuidedPlan() {
+    const task = attemptRef.current?.tasks.find(
+      (item) => item.id === activeTaskId,
+    )
+    if (!task) return
     setPlanSaving(true)
     setError(null)
     try {
-      const payload = await writingApi.savePlan(currentAttempt.id, task.id, {
-        expected_revision_number: task.plan.revision_number,
-        entries: task.prompt.planning_questions.map((question) => ({
-          question_id: question.id,
-          text: planDrafts[question.id] ?? '',
-        })),
-        mark_complete: true,
-      })
-      setAttempt((current) => {
-        if (!current) return current
-        const next = {
-          ...current,
-          tasks: current.tasks.map((item) =>
-            item.id === task.id ? { ...item, plan: payload.plan } : item,
-          ),
-        }
-        attemptRef.current = next
-        return next
-      })
-    } catch (reason) {
+      await persistGuidedPlan(task, true)
+    } catch {
       setError(
-        reason instanceof Error
-          ? reason.message
-          : 'ذخیرهٔ نقشهٔ پاسخ ناموفق بود.',
+        'نقشهٔ پاسخ هنوز ذخیره نشده است. نوشته‌هایت روی همین صفحه مانده‌اند؛ دوباره تلاش کن.',
       )
     } finally {
       setPlanSaving(false)
+    }
+  }
+
+  async function pauseAttempt() {
+    const currentAttempt = attemptRef.current
+    if (!currentAttempt || currentAttempt.status !== 'in_progress' || conflict)
+      return
+    setPausingAttempt(true)
+    setError(null)
+    try {
+      for (const task of currentAttempt.tasks) {
+        if (
+          task.prompt.planning_questions.length > 0 &&
+          task.plan?.status !== 'complete'
+        ) {
+          await persistGuidedPlan(task, false)
+        }
+      }
+      await flushDrafts()
+
+      const savedAttempt = attemptRef.current ?? currentAttempt
+      const savedDrafts = { ...draftsRef.current }
+      const refreshedHistory = await writingApi.listAttempts().catch(() => null)
+      resetWorkspace()
+      if (refreshedHistory) {
+        setAttemptHistory(refreshedHistory)
+      } else {
+        const fallback: WritingAttemptSummary = {
+          id: savedAttempt.id,
+          mode: savedAttempt.mode,
+          experience_mode: savedAttempt.experience_mode,
+          status: savedAttempt.status,
+          title:
+            savedAttempt.mode === 'full_mock'
+              ? 'آزمون کامل Writing'
+              : (savedAttempt.tasks[0]?.prompt.title ?? 'تمرین Writing'),
+          task_type:
+            savedAttempt.mode === 'single_task'
+              ? (savedAttempt.tasks[0]?.prompt.task_type ?? null)
+              : null,
+          word_count: savedAttempt.tasks.reduce(
+            (sum, task) =>
+              sum +
+              countWords(savedDrafts[task.id] ?? task.response.draft_text),
+            0,
+          ),
+          estimated_band_score: null,
+          started_at: savedAttempt.started_at,
+          last_activity_at: new Date().toISOString(),
+          submitted_at: null,
+        }
+        setAttemptHistory((current) => [
+          fallback,
+          ...current.filter((item) => item.id !== fallback.id),
+        ])
+      }
+      setResumeNotice(
+        'همهٔ تغییرها ذخیره شد. هر زمان آماده بودی، از «مسیر Writing تو» ادامه بده.',
+      )
+    } catch {
+      setError(
+        'خروج امن کامل نشد. صفحه را باز نگه دار و دوباره «ذخیره و خروج» را بزن تا چیزی از دست نرود.',
+      )
+    } finally {
+      setPausingAttempt(false)
     }
   }
 
@@ -1097,6 +1233,7 @@ export function WritingWorkspace() {
     setFeedback(null)
     setError(null)
     setSaveError(null)
+    setResumeNotice(null)
     setConflict(null)
   }
 
@@ -1179,6 +1316,18 @@ export function WritingWorkspace() {
               className="mb-6 rounded-2xl bg-red-50 p-4 text-sm leading-7 text-red-800"
             >
               {error}
+            </div>
+          )}
+
+          {resumeNotice && (
+            <div
+              role="status"
+              className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-7 text-emerald-900"
+            >
+              <span aria-hidden="true" className="text-lg">
+                ✓
+              </span>
+              <span>{resumeNotice}</span>
             </div>
           )}
 
@@ -1439,6 +1588,7 @@ export function WritingWorkspace() {
   const needsGuidedPlan =
     isEditing &&
     attempt.experience_mode === 'guided' &&
+    activeTask.prompt.planning_questions.length > 0 &&
     activeTask.plan?.status !== 'complete'
 
   return (
@@ -1465,6 +1615,21 @@ export function WritingWorkspace() {
             </h1>
           </div>
           <div className="flex shrink-0 items-center gap-3">
+            {isEditing && (
+              <button
+                type="button"
+                onClick={pauseAttempt}
+                disabled={
+                  pausingAttempt ||
+                  submitting ||
+                  planSaving ||
+                  Boolean(conflict)
+                }
+                className="min-h-10 rounded-xl border border-[#5d3d73]/25 bg-white px-3 py-2 text-xs font-black text-[#5d3d73] transition hover:bg-[#f2ebf5] disabled:cursor-wait disabled:opacity-50 sm:px-4"
+              >
+                {pausingAttempt ? 'در حال ذخیره…' : 'ذخیره و خروج'}
+              </button>
+            )}
             <span className="hidden text-xs font-bold text-[#687572] sm:inline">
               {saveError
                 ? 'نیاز به بررسی ذخیره'

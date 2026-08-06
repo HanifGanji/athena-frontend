@@ -531,4 +531,241 @@ describe('WritingPage', () => {
       fetchMock.mock.calls.some(([url]) => String(url).includes('/feedback/')),
     ).toBe(false)
   })
+
+  it('bypasses a legacy empty plan and resumes the exact draft after safe exit', async () => {
+    const lunchBreakDraft =
+      'I believe clean water should remain affordable because public health depends on reliable access.'
+    let savedResponse = initialResponse
+    const legacyGuidedAttempt = {
+      ...attempt(),
+      experience_mode: 'guided',
+      experience: {
+        title: 'Guided learning',
+        timer_enabled: false,
+        planning_enabled: true,
+        post_submission_feedback_enabled: true,
+        rewrite_enabled: true,
+        version_number: 1,
+      },
+      tasks: [
+        {
+          ...attempt().tasks[0],
+          plan: {
+            status: 'draft',
+            revision_number: 0,
+            entries: [],
+            updated_at: new Date().toISOString(),
+            completed_at: null,
+          },
+        },
+      ],
+    }
+    let attemptListCalls = 0
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input, init) => {
+        const url = String(input)
+        if (url.endsWith('/writing/prompts/')) return json([promptSummary])
+        if (url.endsWith('/writing/tests/')) return json([])
+        if (url.endsWith('/writing/progress/')) return json({ skills: [] })
+        if (url.endsWith('/writing/attempts/')) {
+          attemptListCalls += 1
+          return json(
+            attemptListCalls === 1
+              ? []
+              : [
+                  {
+                    id: 'attempt-1',
+                    mode: 'single_task',
+                    experience_mode: 'guided',
+                    status: 'in_progress',
+                    title: prompt.title,
+                    task_type: prompt.task_type,
+                    word_count: 13,
+                    estimated_band_score: null,
+                    started_at: legacyGuidedAttempt.started_at,
+                    last_activity_at: new Date().toISOString(),
+                    submitted_at: null,
+                  },
+                ],
+          )
+        }
+        if (url.endsWith('/writing/prompts/demo/attempts/')) {
+          return json(legacyGuidedAttempt, 201)
+        }
+        if (url.endsWith('/tasks/task-1/draft/')) {
+          const body = JSON.parse(String(init?.body)) as { text: string }
+          savedResponse = {
+            ...savedResponse,
+            draft_text: body.text,
+            draft_revision_number: 1,
+            draft_word_count: 13,
+            updated_at: new Date().toISOString(),
+          }
+          return json({ response: savedResponse, cached: false, changed: true })
+        }
+        if (url.endsWith('/writing/attempts/attempt-1/')) {
+          return json({
+            ...legacyGuidedAttempt,
+            tasks: [
+              {
+                ...legacyGuidedAttempt.tasks[0],
+                response: savedResponse,
+              },
+            ],
+          })
+        }
+        return json({ detail: `Unexpected request: ${url}` }, 500)
+      })
+
+    render(<WritingPage />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /یادگیری هدایت‌شده/ }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'شروع نوشتن ←' }))
+
+    const editor = await screen.findByRole('textbox', {
+      name: 'Writing Task 2 response',
+    })
+    expect(
+      screen.queryByRole('heading', { name: 'نقشهٔ کوتاه پاسخ خودت' }),
+    ).not.toBeInTheDocument()
+    fireEvent.change(editor, { target: { value: lunchBreakDraft } })
+    fireEvent.click(screen.getByRole('button', { name: 'ذخیره و خروج' }))
+
+    expect(await screen.findByText(/همهٔ تغییرها ذخیره شد/)).toBeVisible()
+    const resumeLabel = screen.getByText('ادامهٔ پیش‌نویس')
+    fireEvent.click(resumeLabel.closest('button')!)
+
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'Writing Task 2 response',
+      }),
+    ).toHaveValue(lunchBreakDraft)
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes('/plan/')),
+    ).toBe(false)
+  })
+
+  it('preserves an incomplete Guided plan across save, leave, and resume', async () => {
+    const planningQuestion = {
+      id: 'plan-question-lunch-break',
+      kind: 'main_idea',
+      title_fa: 'ایدهٔ اصلی',
+      hint_fa: 'قوی‌ترین دلیل را بنویس.',
+      sequence: 1,
+      required: true,
+    }
+    const partialPlan = 'Public health is the strongest supporting reason.'
+    const emptyPlan = {
+      status: 'draft',
+      revision_number: 0,
+      entries: [],
+      updated_at: new Date().toISOString(),
+      completed_at: null,
+    }
+    const guidedAttempt = {
+      ...attempt(),
+      experience_mode: 'guided',
+      experience: {
+        title: 'Guided learning',
+        timer_enabled: false,
+        planning_enabled: true,
+        post_submission_feedback_enabled: true,
+        rewrite_enabled: true,
+        version_number: 1,
+      },
+      tasks: [
+        {
+          ...attempt().tasks[0],
+          prompt: {
+            ...prompt,
+            planning_questions: [planningQuestion],
+          },
+          plan: emptyPlan,
+        },
+      ],
+    }
+    const savedPlan = {
+      ...emptyPlan,
+      revision_number: 1,
+      entries: [
+        {
+          question_id: planningQuestion.id,
+          text_content: partialPlan,
+          updated_at: new Date().toISOString(),
+        },
+      ],
+    }
+    let attemptListCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.endsWith('/writing/prompts/')) return json([promptSummary])
+      if (url.endsWith('/writing/tests/')) return json([])
+      if (url.endsWith('/writing/progress/')) return json({ skills: [] })
+      if (url.endsWith('/writing/attempts/')) {
+        attemptListCalls += 1
+        return json(
+          attemptListCalls === 1
+            ? []
+            : [
+                {
+                  id: 'attempt-1',
+                  mode: 'single_task',
+                  experience_mode: 'guided',
+                  status: 'in_progress',
+                  title: prompt.title,
+                  task_type: prompt.task_type,
+                  word_count: 0,
+                  estimated_band_score: null,
+                  started_at: guidedAttempt.started_at,
+                  last_activity_at: new Date().toISOString(),
+                  submitted_at: null,
+                },
+              ],
+        )
+      }
+      if (url.endsWith('/writing/prompts/demo/attempts/')) {
+        return json(guidedAttempt, 201)
+      }
+      if (url.endsWith('/tasks/task-1/plan/')) {
+        const body = JSON.parse(String(init?.body)) as {
+          entries: Array<{ question_id: string; text: string }>
+          mark_complete: boolean
+        }
+        expect(body.mark_complete).toBe(false)
+        expect(body.entries).toEqual([
+          { question_id: planningQuestion.id, text: partialPlan },
+        ])
+        return json({ plan: savedPlan, cached: false })
+      }
+      if (url.endsWith('/writing/attempts/attempt-1/')) {
+        return json({
+          ...guidedAttempt,
+          tasks: [{ ...guidedAttempt.tasks[0], plan: savedPlan }],
+        })
+      }
+      return json({ detail: `Unexpected request: ${url}` }, 500)
+    })
+
+    render(<WritingPage />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /یادگیری هدایت‌شده/ }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'شروع نوشتن ←' }))
+    const planField = await screen.findByPlaceholderText(
+      'تصمیم خودت را کوتاه و روشن بنویس…',
+    )
+    fireEvent.change(planField, { target: { value: partialPlan } })
+    fireEvent.click(screen.getByRole('button', { name: 'ذخیره و خروج' }))
+
+    expect(await screen.findByText(/همهٔ تغییرها ذخیره شد/)).toBeVisible()
+    fireEvent.click(screen.getByText('ادامهٔ پیش‌نویس').closest('button')!)
+
+    expect(
+      await screen.findByPlaceholderText('تصمیم خودت را کوتاه و روشن بنویس…'),
+    ).toHaveValue(partialPlan)
+  })
 })
