@@ -4,6 +4,7 @@ export type ReadingTestSummary = {
   id: string
   slug: string
   module: 'academic' | 'general_training'
+  source_title: string
   version_number: number
   title: string
   description: string
