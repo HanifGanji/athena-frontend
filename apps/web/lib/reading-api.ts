@@ -7,6 +7,16 @@ export type ReadingTestSummary = {
   version_number: number
   title: string
   description: string
+  experience_type: 'diagnostic' | 'simulation'
+  delivery_settings: {
+    allowed_attempt_modes?: ReadingAttempt['mode'][]
+    question_count?: number
+    future_challenge?: {
+      eligible: boolean
+      selection_tags: string[]
+      difficulty?: string
+    }
+  }
   time_limit_seconds: number
   question_count: number
 }
@@ -51,6 +61,7 @@ export type ResponseSlot = {
   score_weight: number
   is_example: boolean
   skills: string[]
+  options: QuestionOption[]
 }
 
 export type QuestionGroup = {

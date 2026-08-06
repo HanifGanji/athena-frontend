@@ -10,6 +10,11 @@ const summary = {
   version_number: 1,
   title: 'Reading diagnostic',
   description: 'A short diagnostic.',
+  experience_type: 'simulation',
+  delivery_settings: {
+    allowed_attempt_modes: ['timed_mock'],
+    future_challenge: { eligible: true, selection_tags: ['full-length'] },
+  },
   time_limit_seconds: 1200,
   question_count: 1,
 }
@@ -109,7 +114,7 @@ describe('ReadingPage', () => {
             {
               id: 'attempt-1',
               test_version_id: 'test-1',
-              mode: 'practice',
+              mode: 'timed_mock',
               status: 'in_progress',
               started_at: new Date().toISOString(),
               submitted_at: null,
@@ -157,7 +162,7 @@ describe('ReadingPage', () => {
 
     render(<ReadingPage />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /شروع تمرین/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /شروع آزمون/ }))
     expect(
       await screen.findByRole('heading', { name: 'A useful passage' }),
     ).toBeVisible()
@@ -188,5 +193,9 @@ describe('ReadingPage', () => {
     expect(new Headers(saveCall?.[1]?.headers).get('X-CSRFToken')).toBe(
       'reading-test-token',
     )
+    const startCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/reading/tests/demo/attempts/'),
+    )
+    expect(String(startCall?.[1]?.body)).toContain('timed_mock')
   })
 })

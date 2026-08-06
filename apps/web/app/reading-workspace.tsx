@@ -26,6 +26,10 @@ function moduleLabel(module: ReadingTestSummary['module']) {
   return module === 'academic' ? 'Academic' : 'General Training'
 }
 
+function isTextResponse(interactionType: string) {
+  return interactionType === 'completion' || interactionType === 'short_answer'
+}
+
 export function ReadingWorkspace() {
   const [tests, setTests] = useState<ReadingTestSummary[]>([])
   const [test, setTest] = useState<ReadingTest | null>(null)
@@ -93,7 +97,7 @@ export function ReadingWorkspace() {
       const testPayload = await readingApi.getTest(summary.slug)
       const attemptPayload = await readingApi.startAttempt(
         summary.slug,
-        'practice',
+        summary.experience_type === 'simulation' ? 'timed_mock' : 'practice',
       )
       setTest(testPayload)
       setAttempt(attemptPayload)
@@ -160,10 +164,12 @@ export function ReadingWorkspace() {
   }
 
   async function submit() {
-    if (!attempt || pendingSaves > 0 || saveError) return
+    if (!attempt || saveError) return
     setSubmitting(true)
     setError(null)
     try {
+      await Promise.all(saveQueues.current.values())
+      if (saveFailures.current.size > 0) return
       const result = await readingApi.submitAttempt(attempt.id)
       setEvaluation(result)
       setAttempt({
@@ -233,7 +239,7 @@ export function ReadingWorkspace() {
           <section className="grid gap-10 py-14 lg:grid-cols-[1.15fr_0.85fr] lg:items-end lg:py-24">
             <div>
               <p className="mb-5 text-sm font-bold text-[#a14e32]">
-                تمرین تشخیصی Reading
+                شبیه‌ساز و تمرین Reading
               </p>
               <h1 className="max-w-3xl text-5xl leading-[1.12] font-black tracking-[-0.04em] sm:text-7xl">
                 سریع نخوان؛
@@ -280,6 +286,11 @@ export function ReadingWorkspace() {
                       <span className="rounded-full bg-[#dcebe5] px-3 py-1 text-[#155e57]">
                         {moduleLabel(summary.module)}
                       </span>
+                      <span className="rounded-full bg-[#18302d] px-3 py-1 text-white">
+                        {summary.experience_type === 'simulation'
+                          ? 'شبیه‌ساز کامل'
+                          : 'تمرین تشخیصی'}
+                      </span>
                       <span className="rounded-full bg-[#f3dfd6] px-3 py-1 text-[#8d4028]">
                         {summary.question_count} سؤال
                       </span>
@@ -302,7 +313,9 @@ export function ReadingWorkspace() {
                   >
                     {startingSlug === summary.slug
                       ? 'در حال شروع…'
-                      : 'شروع تمرین ←'}
+                      : summary.experience_type === 'simulation'
+                        ? 'شروع آزمون ←'
+                        : 'شروع تمرین ←'}
                   </button>
                 </article>
               ))}
@@ -338,7 +351,7 @@ export function ReadingWorkspace() {
                 →
               </Link>
               <p className="text-[10px] font-bold tracking-[0.2em] text-[#a14e32]">
-                READING · PRACTICE
+                READING · {attempt.mode === 'timed_mock' ? 'MOCK' : 'PRACTICE'}
               </p>
             </div>
             <h1 className="truncate text-sm font-black sm:text-base">
@@ -424,6 +437,8 @@ export function ReadingWorkspace() {
                 <div className="space-y-7">
                   {group.response_slots.map((slot) => {
                     const result = resultByQuestion.get(slot.id)
+                    const slotOptions =
+                      slot.options?.length > 0 ? slot.options : group.options
                     return (
                       <fieldset
                         key={slot.id}
@@ -441,32 +456,75 @@ export function ReadingWorkspace() {
                           <span>{slot.prompt}</span>
                         </legend>
                         <div className="grid gap-2 pl-0 sm:pl-11" dir="ltr">
-                          {group.options.map((option) => (
-                            <label
-                              key={option.value}
-                              className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-left text-sm leading-6 transition ${
-                                answers[slot.id] === option.value
-                                  ? 'border-[#155e57] bg-[#e5f0eb]'
-                                  : 'border-[#18302d]/10 bg-white hover:border-[#155e57]/40'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={slot.id}
-                                value={option.value}
-                                checked={answers[slot.id] === option.value}
-                                disabled={Boolean(evaluation)}
-                                onChange={() =>
-                                  chooseAnswer(group, slot.id, option.value)
+                          {isTextResponse(group.interaction_type) ? (
+                            <input
+                              type="text"
+                              value={answers[slot.id] ?? ''}
+                              disabled={Boolean(evaluation)}
+                              aria-label={`Answer for question ${slot.display_number}`}
+                              onChange={(event) => {
+                                const nextAnswers = {
+                                  ...answersRef.current,
+                                  [slot.id]: event.target.value,
                                 }
-                                className="mt-1 accent-[#155e57]"
-                              />
-                              <span>
-                                <strong className="mr-2">{option.value}</strong>
-                                {option.label}
-                              </span>
-                            </label>
-                          ))}
+                                answersRef.current = nextAnswers
+                                setAnswers(nextAnswers)
+                              }}
+                              onBlur={(event) =>
+                                chooseAnswer(group, slot.id, event.target.value)
+                              }
+                              className="min-h-12 rounded-xl border border-[#18302d]/15 bg-white px-4 py-3 text-left text-base outline-none transition focus:border-[#155e57] focus:ring-3 focus:ring-[#155e57]/12 disabled:bg-[#ece8dc]"
+                              placeholder="Type your answer"
+                            />
+                          ) : group.interaction_type === 'matching' ? (
+                            <select
+                              value={answers[slot.id] ?? ''}
+                              disabled={Boolean(evaluation)}
+                              aria-label={`Answer for question ${slot.display_number}`}
+                              onChange={(event) =>
+                                chooseAnswer(group, slot.id, event.target.value)
+                              }
+                              className="min-h-12 rounded-xl border border-[#18302d]/15 bg-white px-4 py-3 text-left text-sm outline-none transition focus:border-[#155e57] focus:ring-3 focus:ring-[#155e57]/12 disabled:bg-[#ece8dc]"
+                            >
+                              <option value="">Select an answer</option>
+                              {slotOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.value} — {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            slotOptions.map((option) => (
+                              <label
+                                key={option.value}
+                                className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-left text-sm leading-6 transition ${
+                                  answers[slot.id] === option.value
+                                    ? 'border-[#155e57] bg-[#e5f0eb]'
+                                    : 'border-[#18302d]/10 bg-white hover:border-[#155e57]/40'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={slot.id}
+                                  value={option.value}
+                                  checked={answers[slot.id] === option.value}
+                                  disabled={Boolean(evaluation)}
+                                  onChange={() =>
+                                    chooseAnswer(group, slot.id, option.value)
+                                  }
+                                  className="mt-1 accent-[#155e57]"
+                                />
+                                <span>
+                                  <strong className="mr-2">
+                                    {option.value}
+                                  </strong>
+                                  {option.label !== option.value
+                                    ? option.label
+                                    : null}
+                                </span>
+                              </label>
+                            ))
+                          )}
                         </div>
                         {result && (
                           <div
