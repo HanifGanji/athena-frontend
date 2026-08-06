@@ -6,10 +6,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { absoluteApiUrl, ApiError } from '@/lib/api-client'
 import {
   type WritingAttempt,
+  type WritingAttemptSummary,
   type WritingEvaluation,
+  type WritingExperienceMode,
   type WritingFeedback,
   type WritingModule,
   type WritingPromptSummary,
+  type WritingProgressSkill,
   type WritingResponse,
   type WritingTaskType,
   type WritingTestSummary,
@@ -50,6 +53,25 @@ function moduleLabel(module: WritingModule) {
 function taskLabel(taskType: WritingTaskType) {
   if (taskType === 'task_2') return 'Task 2'
   return taskType === 'academic_task_1' ? 'Academic Task 1' : 'General Task 1'
+}
+
+function experienceLabel(mode: WritingExperienceMode) {
+  return mode === 'exam' ? 'شبیه‌سازی آزمون' : 'یادگیری هدایت‌شده'
+}
+
+function attemptStatusLabel(status: WritingAttempt['status']) {
+  if (status === 'in_progress') return 'ادامهٔ پیش‌نویس'
+  if (status === 'evaluated') return 'دیدن تحلیل'
+  if (status === 'evaluating') return 'در حال تحلیل'
+  if (status === 'submitted') return 'آمادهٔ تحلیل'
+  return 'پایان‌یافته'
+}
+
+function shortDate(value: string) {
+  return new Intl.DateTimeFormat('fa-IR', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value))
 }
 
 function feedbackKindLabel(kind: string) {
@@ -114,6 +136,12 @@ function conflictFrom(error: unknown, taskId: string, localText: string) {
 
 type FeedbackItem = WritingEvaluation['feedback_items'][number]
 
+type RewriteFocus = {
+  titleFa: string
+  excerpt: string
+  suggestedRevision: string
+}
+
 type AnnotationRange = {
   start: number
   end: number
@@ -168,9 +196,18 @@ function bandLevelLabel(score: string) {
 function FeedbackDetail({
   evaluation,
   item,
+  onDecision,
+  onRewrite,
+  pendingAction,
 }: {
   evaluation: WritingEvaluation
   item: FeedbackItem
+  onDecision: (
+    item: FeedbackItem,
+    decision: 'accepted' | 'fixed' | 'dismissed' | 'not_useful',
+  ) => void
+  onRewrite: (item: FeedbackItem) => void
+  pendingAction: boolean
 }) {
   const criterion = evaluation.criterion_results.find(
     (result) => result.code === item.criterion_code,
@@ -228,6 +265,51 @@ function FeedbackDetail({
           >
             {item.suggested_revision}
           </p>
+        </div>
+      )}
+
+      {!isStrength && (
+        <div className="mt-5 border-t border-current/15 pt-4">
+          <p className="text-xs font-black text-[#5d6966]">
+            این نکته برایت چه وضعی دارد؟
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onDecision(item, 'accepted')}
+              disabled={pendingAction}
+              aria-pressed={item.learner_decision?.decision === 'accepted'}
+              className="min-h-11 rounded-xl border border-current/20 bg-white/80 px-4 py-2 text-xs font-black transition hover:bg-white disabled:opacity-50 aria-pressed:bg-[#18302d] aria-pressed:text-white"
+            >
+              فهمیدم
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecision(item, 'fixed')}
+              disabled={pendingAction}
+              aria-pressed={item.learner_decision?.decision === 'fixed'}
+              className="min-h-11 rounded-xl border border-current/20 bg-white/80 px-4 py-2 text-xs font-black transition hover:bg-white disabled:opacity-50 aria-pressed:bg-[#18302d] aria-pressed:text-white"
+            >
+              اصلاحش کردم
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecision(item, 'not_useful')}
+              disabled={pendingAction}
+              aria-pressed={item.learner_decision?.decision === 'not_useful'}
+              className="min-h-11 rounded-xl border border-current/20 bg-white/80 px-4 py-2 text-xs font-black transition hover:bg-white disabled:opacity-50 aria-pressed:bg-[#18302d] aria-pressed:text-white"
+            >
+              مفید نبود
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRewrite(item)}
+            disabled={pendingAction}
+            className="mt-3 min-h-11 w-full rounded-xl bg-[#18302d] px-4 py-3 text-sm font-black text-white transition hover:bg-[#24423e] disabled:opacity-50"
+          >
+            این بخش را خودم بازنویسی می‌کنم
+          </button>
         </div>
       )}
     </article>
@@ -300,9 +382,18 @@ function AnnotatedEssay({
 function EvaluationPanel({
   evaluation,
   submissionText,
+  onDecision,
+  onRewrite,
+  pendingFeedbackItemId,
 }: {
   evaluation: WritingEvaluation
   submissionText: string
+  onDecision: (
+    item: FeedbackItem,
+    decision: 'accepted' | 'fixed' | 'dismissed' | 'not_useful',
+  ) => void
+  onRewrite: (item: FeedbackItem) => void
+  pendingFeedbackItemId: string | null
 }) {
   const defaultItem =
     evaluation.feedback_items.find((item) => item.kind !== 'strength') ??
@@ -468,7 +559,13 @@ function EvaluationPanel({
 
           {selectedItem && (
             <div className="lg:sticky lg:top-6">
-              <FeedbackDetail evaluation={evaluation} item={selectedItem} />
+              <FeedbackDetail
+                evaluation={evaluation}
+                item={selectedItem}
+                onDecision={onDecision}
+                onRewrite={onRewrite}
+                pendingAction={pendingFeedbackItemId === selectedItem.id}
+              />
             </div>
           )}
         </div>
@@ -508,8 +605,17 @@ function EvaluationPanel({
 export function WritingWorkspace() {
   const [prompts, setPrompts] = useState<WritingPromptSummary[]>([])
   const [tests, setTests] = useState<WritingTestSummary[]>([])
+  const [attemptHistory, setAttemptHistory] = useState<WritingAttemptSummary[]>(
+    [],
+  )
+  const [progressSkills, setProgressSkills] = useState<WritingProgressSkill[]>(
+    [],
+  )
+  const [experienceMode, setExperienceMode] =
+    useState<WritingExperienceMode>('exam')
   const [attempt, setAttempt] = useState<WritingAttempt | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [planDrafts, setPlanDrafts] = useState<Record<string, string>>({})
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<WritingFeedback | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -518,6 +624,14 @@ export function WritingWorkspace() {
   const [pendingSaves, setPendingSaves] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [planSaving, setPlanSaving] = useState(false)
+  const [resumingAttemptId, setResumingAttemptId] = useState<string | null>(
+    null,
+  )
+  const [pendingFeedbackItemId, setPendingFeedbackItemId] = useState<
+    string | null
+  >(null)
+  const [rewriteFocus, setRewriteFocus] = useState<RewriteFocus | null>(null)
   const [reviewing, setReviewing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -536,10 +650,14 @@ export function WritingWorkspace() {
     Promise.all([
       writingApi.listPrompts(controller.signal),
       writingApi.listTests(controller.signal),
+      writingApi.listAttempts(controller.signal),
+      writingApi.getProgress(controller.signal),
     ])
-      .then(([promptPayload, testPayload]) => {
+      .then(([promptPayload, testPayload, attemptPayload, progressPayload]) => {
         setPrompts(promptPayload)
         setTests(testPayload)
+        setAttemptHistory(attemptPayload)
+        setProgressSkills(progressPayload.skills)
       })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError')
@@ -564,7 +682,12 @@ export function WritingWorkspace() {
   )
 
   useEffect(() => {
-    if (!attempt || attempt.status !== 'in_progress') return
+    if (
+      !attempt ||
+      attempt.status !== 'in_progress' ||
+      attempt.experience?.timer_enabled === false
+    )
+      return
     const startedAt = new Date(attempt.started_at).getTime()
     const update = () =>
       setElapsedSeconds(
@@ -575,9 +698,21 @@ export function WritingWorkspace() {
     return () => window.clearInterval(timer)
   }, [attempt])
 
-  function hydrateAttempt(payload: WritingAttempt) {
+  function hydrateAttempt(
+    payload: WritingAttempt,
+    nextRewriteFocus: RewriteFocus | null = null,
+  ) {
     const nextDrafts = Object.fromEntries(
       payload.tasks.map((task) => [task.id, task.response.draft_text]),
+    )
+    const nextPlanDrafts = Object.fromEntries(
+      payload.tasks.flatMap((task) =>
+        task.prompt.planning_questions.map((question) => [
+          question.id,
+          task.plan?.entries.find((entry) => entry.question_id === question.id)
+            ?.text_content ?? '',
+        ]),
+      ),
     )
     attemptRef.current = payload
     draftsRef.current = nextDrafts
@@ -592,19 +727,21 @@ export function WritingWorkspace() {
     )
     setAttempt(payload)
     setDrafts(nextDrafts)
+    setPlanDrafts(nextPlanDrafts)
     setActiveTaskId(payload.tasks[0]?.id ?? null)
     setFeedback(null)
     setConflict(null)
     setSaveError(null)
     setReviewing(false)
     setElapsedSeconds(0)
+    setRewriteFocus(nextRewriteFocus)
   }
 
   async function startPrompt(prompt: WritingPromptSummary) {
     setStartingSlug(prompt.slug)
     setError(null)
     try {
-      hydrateAttempt(await writingApi.startPrompt(prompt.slug))
+      hydrateAttempt(await writingApi.startPrompt(prompt.slug, experienceMode))
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : 'شروع تمرین ناموفق بود.',
@@ -618,13 +755,27 @@ export function WritingWorkspace() {
     setStartingSlug(test.slug)
     setError(null)
     try {
-      hydrateAttempt(await writingApi.startTest(test.slug))
+      hydrateAttempt(await writingApi.startTest(test.slug, experienceMode))
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : 'شروع آزمون ناموفق بود.',
       )
     } finally {
       setStartingSlug(null)
+    }
+  }
+
+  async function resumeAttempt(attemptId: string) {
+    setResumingAttemptId(attemptId)
+    setError(null)
+    try {
+      hydrateAttempt(await writingApi.getAttempt(attemptId))
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'بازکردن تمرین ناموفق بود.',
+      )
+    } finally {
+      setResumingAttemptId(null)
     }
   }
 
@@ -792,6 +943,105 @@ export function WritingWorkspace() {
     }
   }
 
+  async function completeGuidedPlan() {
+    const currentAttempt = attemptRef.current
+    const task = currentAttempt?.tasks.find((item) => item.id === activeTaskId)
+    if (!currentAttempt || !task || !task.plan) return
+    setPlanSaving(true)
+    setError(null)
+    try {
+      const payload = await writingApi.savePlan(currentAttempt.id, task.id, {
+        expected_revision_number: task.plan.revision_number,
+        entries: task.prompt.planning_questions.map((question) => ({
+          question_id: question.id,
+          text: planDrafts[question.id] ?? '',
+        })),
+        mark_complete: true,
+      })
+      setAttempt((current) => {
+        if (!current) return current
+        const next = {
+          ...current,
+          tasks: current.tasks.map((item) =>
+            item.id === task.id ? { ...item, plan: payload.plan } : item,
+          ),
+        }
+        attemptRef.current = next
+        return next
+      })
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'ذخیرهٔ نقشهٔ پاسخ ناموفق بود.',
+      )
+    } finally {
+      setPlanSaving(false)
+    }
+  }
+
+  async function decideOnFeedback(
+    item: FeedbackItem,
+    decision: 'accepted' | 'fixed' | 'dismissed' | 'not_useful',
+  ) {
+    setPendingFeedbackItemId(item.id)
+    setError(null)
+    try {
+      await writingApi.setFeedbackDecision(item.id, decision)
+      setFeedback((current) =>
+        current
+          ? {
+              ...current,
+              evaluations: current.evaluations.map((evaluation) => ({
+                ...evaluation,
+                feedback_items: evaluation.feedback_items.map((feedbackItem) =>
+                  feedbackItem.id === item.id
+                    ? {
+                        ...feedbackItem,
+                        learner_decision: { decision, note: '' },
+                      }
+                    : feedbackItem,
+                ),
+              })),
+            }
+          : current,
+      )
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'ثبت وضعیت بازخورد ناموفق بود.',
+      )
+    } finally {
+      setPendingFeedbackItemId(null)
+    }
+  }
+
+  async function startRewrite(
+    evaluation: WritingEvaluation,
+    item: FeedbackItem,
+  ) {
+    setPendingFeedbackItemId(item.id)
+    setError(null)
+    try {
+      const rewriteAttempt = await writingApi.startRewrite(
+        evaluation.submission_id,
+        item.id,
+      )
+      hydrateAttempt(rewriteAttempt, {
+        titleFa: item.title_fa,
+        excerpt: item.original_excerpt,
+        suggestedRevision: item.suggested_revision,
+      })
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'شروع بازنویسی ناموفق بود.',
+      )
+    } finally {
+      setPendingFeedbackItemId(null)
+    }
+  }
+
   function useServerDraft() {
     if (!conflict) return
     revisionsRef.current.set(conflict.taskId, conflict.serverRevision)
@@ -842,6 +1092,7 @@ export function WritingWorkspace() {
     savedTextRef.current.clear()
     setAttempt(null)
     setDrafts({})
+    setPlanDrafts({})
     setActiveTaskId(null)
     setFeedback(null)
     setError(null)
@@ -929,6 +1180,156 @@ export function WritingWorkspace() {
             >
               {error}
             </div>
+          )}
+
+          <section
+            aria-labelledby="writing-mode-title"
+            className="mb-12 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]"
+          >
+            <div className="rounded-[2rem] border border-[#18302d]/10 bg-[#fffdf8] p-5 shadow-[0_16px_50px_rgba(24,48,45,0.06)] sm:p-7">
+              <p className="text-xs font-bold tracking-[0.16em] text-[#8f4f54]">
+                CHOOSE YOUR EXPERIENCE
+              </p>
+              <h2 id="writing-mode-title" className="mt-2 text-2xl font-black">
+                امروز چطور می‌خواهی تمرین کنی؟
+              </h2>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    {
+                      mode: 'exam' as const,
+                      title: 'شبیه‌سازی آزمون',
+                      description:
+                        'حالت پیش‌فرض؛ تایمر واقعی، بدون راهنمایی هنگام نوشتن.',
+                      badge: 'پیشنهادی',
+                    },
+                    {
+                      mode: 'guided' as const,
+                      title: 'یادگیری هدایت‌شده',
+                      description:
+                        'نقشهٔ کوتاه پاسخ، نوشتن مستقل و بازنویسی بعد از تحلیل.',
+                      badge: 'بدون AI قبل از ثبت',
+                    },
+                  ] satisfies Array<{
+                    mode: WritingExperienceMode
+                    title: string
+                    description: string
+                    badge: string
+                  }>
+                ).map((option) => (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    aria-pressed={experienceMode === option.mode}
+                    onClick={() => setExperienceMode(option.mode)}
+                    className={`min-h-36 rounded-2xl border p-5 text-right transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#155e57] ${
+                      experienceMode === option.mode
+                        ? 'border-[#5d3d73] bg-[#ece3f1] shadow-[0_10px_28px_rgba(93,61,115,0.12)]'
+                        : 'border-[#18302d]/10 bg-white hover:border-[#5d3d73]/35'
+                    }`}
+                  >
+                    <span className="text-[10px] font-black tracking-[0.08em] text-[#8f4f54]">
+                      {option.badge}
+                    </span>
+                    <span className="mt-2 block text-lg font-black">
+                      {option.title}
+                    </span>
+                    <span className="mt-2 block text-xs leading-6 text-[#5f6e6a]">
+                      {option.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] bg-[#18302d] p-5 text-white sm:p-7">
+              <p className="text-xs font-bold tracking-[0.16em] text-[#f1a57d]">
+                YOUR LEARNING SIGNAL
+              </p>
+              <h2 className="mt-2 text-xl font-black">
+                یک قدم مشخص، نه ده توصیه
+              </h2>
+              {progressSkills.length > 0 ? (
+                <div className="mt-5 space-y-3">
+                  {progressSkills
+                    .toSorted(
+                      (left, right) =>
+                        right.growth_count - left.growth_count ||
+                        right.fixed_count - left.fixed_count,
+                    )
+                    .slice(0, 3)
+                    .map((skill) => (
+                      <div
+                        key={skill.code}
+                        className="flex items-center justify-between gap-4 rounded-2xl bg-white/8 p-4"
+                      >
+                        <div>
+                          <p className="font-black">{skill.name_fa}</p>
+                          <p className="mt-1 text-xs text-[#a9bfba]">
+                            {skill.growth_count} مشاهده · {skill.fixed_count}{' '}
+                            اصلاح ثبت‌شده
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-[#f1a57d] px-3 py-2 font-mono text-xs font-black text-[#18302d]">
+                          {skill.strength_count}/{skill.growth_count}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm leading-7 text-[#c6d5d2]">
+                  بعد از اولین تحلیل، آتنا فقط مهم‌ترین الگوهای قابل تمرین را
+                  اینجا نگه می‌دارد.
+                </p>
+              )}
+            </div>
+          </section>
+
+          {attemptHistory.length > 0 && (
+            <section aria-labelledby="writing-history" className="mb-14">
+              <div className="mb-5 flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold tracking-[0.16em] text-[#6f7f7b]">
+                    CONTINUE OR REVIEW
+                  </p>
+                  <h2 id="writing-history" className="mt-2 text-2xl font-black">
+                    مسیر Writing تو
+                  </h2>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {attemptHistory.slice(0, 4).map((historyItem) => (
+                  <button
+                    key={historyItem.id}
+                    type="button"
+                    onClick={() => resumeAttempt(historyItem.id)}
+                    disabled={resumingAttemptId !== null}
+                    className="flex min-h-28 items-center justify-between gap-5 rounded-2xl border border-[#18302d]/10 bg-white p-5 text-right transition hover:border-[#5d3d73]/35 hover:shadow-[0_12px_35px_rgba(24,48,45,0.07)] disabled:opacity-60"
+                  >
+                    <span>
+                      <span className="block text-xs font-black text-[#8f4f54]">
+                        {experienceLabel(historyItem.experience_mode)} ·{' '}
+                        {shortDate(historyItem.last_activity_at)}
+                      </span>
+                      <span className="mt-2 block font-black">
+                        {historyItem.title}
+                      </span>
+                      <span className="mt-1 block text-xs text-[#687572]">
+                        {historyItem.word_count} کلمه
+                        {historyItem.estimated_band_score
+                          ? ` · برآورد ${historyItem.estimated_band_score}`
+                          : ''}
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-xl bg-[#ece3f1] px-3 py-2 text-xs font-black text-[#5d3d73]">
+                      {resumingAttemptId === historyItem.id
+                        ? 'در حال بازکردن…'
+                        : attemptStatusLabel(historyItem.status)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
           )}
 
           <section aria-labelledby="writing-prompts" className="pb-14">
@@ -1035,6 +1436,10 @@ export function WritingWorkspace() {
 
   const isEditing = attempt.status === 'in_progress'
   const draft = drafts[activeTask.id] ?? ''
+  const needsGuidedPlan =
+    isEditing &&
+    attempt.experience_mode === 'guided' &&
+    activeTask.plan?.status !== 'complete'
 
   return (
     <main className="min-h-svh bg-[#efede5] text-[#18302d]">
@@ -1051,7 +1456,8 @@ export function WritingWorkspace() {
               </Link>
               <p className="text-[10px] font-bold tracking-[0.2em] text-[#8f4f54]">
                 WRITING ·{' '}
-                {attempt.mode === 'full_mock' ? 'FULL MOCK' : 'PRACTICE'}
+                {attempt.mode === 'full_mock' ? 'FULL MOCK' : 'PRACTICE'} ·{' '}
+                {attempt.experience_mode === 'exam' ? 'EXAM' : 'GUIDED'}
               </p>
             </div>
             <h1 className="truncate text-sm font-black sm:text-base">
@@ -1068,18 +1474,24 @@ export function WritingWorkspace() {
                     ? 'پیش‌نویس ذخیره شد'
                     : 'پاسخ ثبت شده'}
             </span>
-            <span
-              dir="ltr"
-              className={`rounded-xl px-4 py-2 font-mono text-sm font-bold ${
-                timeRemaining <= 0
-                  ? 'bg-red-100 text-red-700'
-                  : timeRemaining < 300
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-[#ece3f1] text-[#5d3d73]'
-              }`}
-            >
-              {formatTime(timeRemaining)}
-            </span>
+            {attempt.experience?.timer_enabled === false ? (
+              <span className="rounded-xl bg-[#dcebe5] px-4 py-2 text-xs font-black text-[#155e57]">
+                بدون فشار زمان
+              </span>
+            ) : (
+              <span
+                dir="ltr"
+                className={`rounded-xl px-4 py-2 font-mono text-sm font-bold ${
+                  timeRemaining <= 0
+                    ? 'bg-red-100 text-red-700'
+                    : timeRemaining < 300
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-[#ece3f1] text-[#5d3d73]'
+                }`}
+              >
+                {formatTime(timeRemaining)}
+              </span>
+            )}
           </div>
         </div>
         {attempt.tasks.length > 1 && (
@@ -1115,165 +1527,301 @@ export function WritingWorkspace() {
         </div>
       )}
 
-      {isEditing ? (
-        <div className="mx-auto grid max-w-[1600px] lg:h-[calc(100svh-65px)] lg:grid-cols-[minmax(380px,0.78fr)_minmax(0,1.22fr)]">
-          <section
-            aria-label="Writing prompt"
-            dir="ltr"
-            className="border-b border-[#18302d]/10 bg-[#fffdf8] px-6 py-8 text-left sm:px-10 lg:overflow-y-auto lg:border-r lg:border-b-0 lg:px-12"
-          >
-            <article className="mx-auto max-w-2xl">
-              <div className="flex flex-wrap gap-2 text-[11px] font-bold tracking-wider">
-                <span className="rounded-full bg-[#ece3f1] px-3 py-1 text-[#5d3d73]">
-                  {moduleLabel(activeTask.prompt.module)}
-                </span>
-                <span className="rounded-full bg-[#f3dfd6] px-3 py-1 text-[#8d4028]">
-                  {taskLabel(activeTask.prompt.task_type)}
-                </span>
-              </div>
-              <p className="mt-8 font-mono text-xs tracking-[0.16em] text-[#8f4f54]">
-                WRITING TASK {activeTask.task_number}
+      {isEditing && rewriteFocus && (
+        <section
+          aria-label="هدف بازنویسی"
+          className="mx-auto mt-5 grid max-w-[1500px] gap-3 rounded-2xl border border-[#5d3d73]/15 bg-[#f2ebf5] px-5 py-4 text-sm sm:grid-cols-[auto_1fr] sm:items-center sm:px-6"
+        >
+          <div>
+            <p className="text-[10px] font-black tracking-[0.14em] text-[#8f4f54]">
+              FOCUSED REWRITE
+            </p>
+            <p className="mt-1 font-black text-[#3f2950]">
+              تمرکز این بازنویسی: {rewriteFocus.titleFa}
+            </p>
+          </div>
+          <div dir="ltr" className="text-left text-xs leading-6 text-[#594b61]">
+            {rewriteFocus.excerpt && (
+              <p>
+                <span className="font-black">Your line:</span>{' '}
+                {rewriteFocus.excerpt}
               </p>
-              <h2 className="mt-3 font-serif text-3xl leading-tight font-bold sm:text-4xl">
-                {activeTask.prompt.title}
-              </h2>
-              <p className="mt-8 font-serif text-lg leading-9 text-[#30423f]">
-                {activeTask.prompt.prompt_text}
+            )}
+            {rewriteFocus.suggestedRevision && (
+              <p>
+                <span className="font-black">Review target:</span>{' '}
+                {rewriteFocus.suggestedRevision}
               </p>
-              {activeTask.prompt.assets.map((asset) => (
-                // The backend route is authenticated and keeps the storage key private.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={asset.id}
-                  src={absoluteApiUrl(asset.url)}
-                  alt={asset.alt_text}
-                  width={asset.width_pixels ?? undefined}
-                  height={asset.height_pixels ?? undefined}
-                  className="mt-7 h-auto w-full rounded-2xl border border-[#18302d]/10 bg-white"
-                />
-              ))}
-              <div className="mt-8 rounded-2xl border-l-4 border-[#e57d55] bg-[#f8eee8] p-5">
-                <p className="font-serif text-base leading-8">
-                  {activeTask.prompt.instructions}
-                </p>
-                {activeTask.prompt.requirements.length > 0 && (
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7">
-                    {activeTask.prompt.requirements.map((requirement) => (
-                      <li key={requirement.sequence}>{requirement.text}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="mt-8 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-[#ece8dc] p-4">
-                  <p className="text-xs text-[#687572]">Minimum</p>
-                  <p className="mt-1 font-mono text-xl font-black">
-                    {activeTask.prompt.minimum_word_count} words
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-[#ece3f1] p-4">
-                  <p className="text-xs text-[#6d5b78]">Recommended</p>
-                  <p className="mt-1 font-mono text-xl font-black text-[#5d3d73]">
-                    {Math.round(activeTask.recommended_time_seconds / 60)} min
-                  </p>
-                </div>
-              </div>
-              <div className="mt-8">
-                <p className="text-xs font-bold tracking-[0.14em] text-[#6f7f7b]">
-                  ASSESSMENT CRITERIA
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {activeTask.prompt.criteria.map((criterion) => (
-                    <span
-                      key={criterion.code}
-                      title={criterion.name_fa}
-                      className="rounded-full border border-[#18302d]/10 bg-white px-3 py-2 text-xs font-bold"
-                    >
-                      {criterion.name_en}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </article>
-          </section>
+            )}
+          </div>
+        </section>
+      )}
 
-          <section
-            aria-label="Writing editor"
-            className="flex min-h-[70svh] flex-col bg-[#efede5] px-4 py-5 sm:px-7 sm:py-7 lg:min-h-0 lg:overflow-y-auto lg:px-9"
-          >
-            <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      {isEditing ? (
+        needsGuidedPlan ? (
+          <div className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
+            <section className="rounded-[2rem] border border-[#18302d]/10 bg-[#fffdf8] p-5 shadow-[0_18px_55px_rgba(24,48,45,0.07)] sm:p-8">
+              <div className="grid gap-6 border-b border-[#18302d]/10 pb-7 lg:grid-cols-[1fr_auto] lg:items-end">
                 <div>
                   <p className="text-xs font-bold tracking-[0.16em] text-[#8f4f54]">
-                    YOUR RESPONSE
+                    GUIDED · PLAN BEFORE YOU WRITE
                   </p>
-                  <h2 className="mt-1 text-xl font-black">پیش‌نویس پاسخ</h2>
+                  <h1 className="mt-2 text-3xl font-black sm:text-4xl">
+                    نقشهٔ کوتاه پاسخ خودت
+                  </h1>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-[#61706c]">
+                    اینجا AI چیزی برایت نمی‌نویسد. چند تصمیم کلیدی را خودت ثبت
+                    می‌کنی تا متن منسجم‌تری بسازی؛ بعد وارد همان ویرایشگر اصلی
+                    می‌شوی.
+                  </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    dir="ltr"
-                    className={`rounded-full px-3 py-2 font-mono text-xs font-bold ${
-                      currentWordCount < activeTask.prompt.minimum_word_count
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {currentWordCount} / {activeTask.prompt.minimum_word_count}{' '}
-                    words
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => saveManually(activeTask.id)}
-                    disabled={pendingSaves > 0 || Boolean(conflict)}
-                    className="rounded-xl border border-[#5d3d73]/25 bg-white px-4 py-2 text-xs font-black text-[#5d3d73] disabled:opacity-50"
-                  >
-                    ذخیرهٔ پیش‌نویس
-                  </button>
-                </div>
+                <span className="rounded-2xl bg-[#ece3f1] px-4 py-3 text-xs font-black text-[#5d3d73]">
+                  {activeTask.prompt.planning_questions.length} تصمیم کوتاه
+                </span>
               </div>
 
-              {saveError && (
-                <div
-                  role="alert"
-                  className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
-                >
-                  {saveError}
-                </div>
-              )}
-
-              <textarea
+              <div
                 dir="ltr"
-                aria-label={`Writing Task ${activeTask.task_number} response`}
-                value={draft}
-                onChange={(event) =>
-                  changeDraft(activeTask.id, event.target.value)
-                }
-                spellCheck
-                placeholder="Write your response here…"
-                className="min-h-[28rem] w-full flex-1 resize-y rounded-[1.6rem] border border-[#18302d]/12 bg-[#fffdf8] px-5 py-5 text-left font-serif text-lg leading-9 text-[#263b38] shadow-[0_16px_50px_rgba(24,48,45,0.06)] outline-none transition focus:border-[#5d3d73]/45 focus:ring-4 focus:ring-[#5d3d73]/8 sm:min-h-[34rem] sm:px-7 sm:py-6"
-              />
+                className="mt-7 rounded-2xl bg-[#f4f1e8] p-5 text-left"
+              >
+                <p className="font-serif text-base leading-8 text-[#30423f]">
+                  {activeTask.prompt.prompt_text}
+                </p>
+                {activeTask.prompt.assets.map((asset) => (
+                  // The learner needs the visual to make their own plan. The
+                  // authenticated URL is never included in an AI request.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={asset.id}
+                    src={absoluteApiUrl(asset.url)}
+                    alt={asset.alt_text}
+                    width={asset.width_pixels ?? undefined}
+                    height={asset.height_pixels ?? undefined}
+                    className="mt-5 h-auto w-full rounded-2xl border border-[#18302d]/10 bg-white"
+                  />
+                ))}
+              </div>
 
-              <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-[#fffdf8] p-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs leading-6 text-[#65716e]">
-                  پیش‌نویس با فاصلهٔ کوتاه و فقط هنگام تغییر متن ذخیره می‌شود.
-                  پایان زمان پاسخ را خودکار ثبت نمی‌کند.
+              <div className="mt-7 grid gap-4">
+                {activeTask.prompt.planning_questions.map((question, index) => (
+                  <label
+                    key={question.id}
+                    htmlFor={`plan-${question.id}`}
+                    className="grid gap-3 rounded-2xl border border-[#18302d]/10 bg-white p-5 sm:grid-cols-[2rem_1fr]"
+                  >
+                    <span className="grid size-8 place-items-center rounded-full bg-[#18302d] font-mono text-xs font-black text-white">
+                      {index + 1}
+                    </span>
+                    <span>
+                      <span className="block font-black">
+                        {question.title_fa}
+                      </span>
+                      {question.hint_fa && (
+                        <span className="mt-1 block text-xs leading-6 text-[#6a7774]">
+                          {question.hint_fa}
+                        </span>
+                      )}
+                      <textarea
+                        id={`plan-${question.id}`}
+                        value={planDrafts[question.id] ?? ''}
+                        onChange={(event) =>
+                          setPlanDrafts((current) => ({
+                            ...current,
+                            [question.id]: event.target.value,
+                          }))
+                        }
+                        rows={3}
+                        dir="rtl"
+                        className="mt-3 w-full resize-y rounded-xl border border-[#18302d]/15 bg-[#fffdf8] px-4 py-3 text-sm leading-7 outline-none transition focus:border-[#5d3d73] focus:ring-4 focus:ring-[#5d3d73]/8"
+                        placeholder="تصمیم خودت را کوتاه و روشن بنویس…"
+                      />
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-7 flex flex-col gap-3 rounded-2xl bg-[#18302d] p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-2xl text-xs leading-6 text-[#c6d5d2]">
+                  این نقشه همراه همین تلاش ذخیره می‌شود، اما وارد ارزیابی IELTS
+                  نمی‌شود و مدل AI آن را نمی‌بیند.
                 </p>
                 <button
                   type="button"
-                  onClick={() => setReviewing(true)}
+                  onClick={completeGuidedPlan}
                   disabled={
-                    pendingSaves > 0 ||
-                    Boolean(conflict) ||
-                    attempt.tasks.some((task) => !drafts[task.id]?.trim())
+                    planSaving ||
+                    activeTask.prompt.planning_questions.some(
+                      (question) =>
+                        question.required && !planDrafts[question.id]?.trim(),
+                    )
                   }
-                  className="shrink-0 rounded-xl bg-[#18302d] px-6 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="min-h-12 shrink-0 rounded-xl bg-[#f1a57d] px-6 py-3 text-sm font-black text-[#18302d] transition hover:bg-[#f6b493] disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  مرور و ثبت پاسخ
+                  {planSaving ? 'در حال ذخیره…' : 'ذخیرهٔ نقشه و شروع نوشتن'}
                 </button>
               </div>
-            </div>
-          </section>
-        </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mx-auto grid max-w-[1600px] lg:h-[calc(100svh-65px)] lg:grid-cols-[minmax(380px,0.78fr)_minmax(0,1.22fr)]">
+            <section
+              aria-label="Writing prompt"
+              dir="ltr"
+              className="border-b border-[#18302d]/10 bg-[#fffdf8] px-6 py-8 text-left sm:px-10 lg:overflow-y-auto lg:border-r lg:border-b-0 lg:px-12"
+            >
+              <article className="mx-auto max-w-2xl">
+                <div className="flex flex-wrap gap-2 text-[11px] font-bold tracking-wider">
+                  <span className="rounded-full bg-[#ece3f1] px-3 py-1 text-[#5d3d73]">
+                    {moduleLabel(activeTask.prompt.module)}
+                  </span>
+                  <span className="rounded-full bg-[#f3dfd6] px-3 py-1 text-[#8d4028]">
+                    {taskLabel(activeTask.prompt.task_type)}
+                  </span>
+                </div>
+                <p className="mt-8 font-mono text-xs tracking-[0.16em] text-[#8f4f54]">
+                  WRITING TASK {activeTask.task_number}
+                </p>
+                <h2 className="mt-3 font-serif text-3xl leading-tight font-bold sm:text-4xl">
+                  {activeTask.prompt.title}
+                </h2>
+                <p className="mt-8 font-serif text-lg leading-9 text-[#30423f]">
+                  {activeTask.prompt.prompt_text}
+                </p>
+                {activeTask.prompt.assets.map((asset) => (
+                  // The backend route is authenticated and keeps the storage key private.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={asset.id}
+                    src={absoluteApiUrl(asset.url)}
+                    alt={asset.alt_text}
+                    width={asset.width_pixels ?? undefined}
+                    height={asset.height_pixels ?? undefined}
+                    className="mt-7 h-auto w-full rounded-2xl border border-[#18302d]/10 bg-white"
+                  />
+                ))}
+                <div className="mt-8 rounded-2xl border-l-4 border-[#e57d55] bg-[#f8eee8] p-5">
+                  <p className="font-serif text-base leading-8">
+                    {activeTask.prompt.instructions}
+                  </p>
+                  {activeTask.prompt.requirements.length > 0 && (
+                    <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7">
+                      {activeTask.prompt.requirements.map((requirement) => (
+                        <li key={requirement.sequence}>{requirement.text}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="mt-8 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-[#ece8dc] p-4">
+                    <p className="text-xs text-[#687572]">Minimum</p>
+                    <p className="mt-1 font-mono text-xl font-black">
+                      {activeTask.prompt.minimum_word_count} words
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-[#ece3f1] p-4">
+                    <p className="text-xs text-[#6d5b78]">Recommended</p>
+                    <p className="mt-1 font-mono text-xl font-black text-[#5d3d73]">
+                      {Math.round(activeTask.recommended_time_seconds / 60)} min
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-8">
+                  <p className="text-xs font-bold tracking-[0.14em] text-[#6f7f7b]">
+                    ASSESSMENT CRITERIA
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {activeTask.prompt.criteria.map((criterion) => (
+                      <span
+                        key={criterion.code}
+                        title={criterion.name_fa}
+                        className="rounded-full border border-[#18302d]/10 bg-white px-3 py-2 text-xs font-bold"
+                      >
+                        {criterion.name_en}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <section
+              aria-label="Writing editor"
+              className="flex min-h-[70svh] flex-col bg-[#efede5] px-4 py-5 sm:px-7 sm:py-7 lg:min-h-0 lg:overflow-y-auto lg:px-9"
+            >
+              <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold tracking-[0.16em] text-[#8f4f54]">
+                      YOUR RESPONSE
+                    </p>
+                    <h2 className="mt-1 text-xl font-black">پیش‌نویس پاسخ</h2>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      dir="ltr"
+                      className={`rounded-full px-3 py-2 font-mono text-xs font-bold ${
+                        currentWordCount < activeTask.prompt.minimum_word_count
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {currentWordCount} /{' '}
+                      {activeTask.prompt.minimum_word_count} words
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => saveManually(activeTask.id)}
+                      disabled={pendingSaves > 0 || Boolean(conflict)}
+                      className="rounded-xl border border-[#5d3d73]/25 bg-white px-4 py-2 text-xs font-black text-[#5d3d73] disabled:opacity-50"
+                    >
+                      ذخیرهٔ پیش‌نویس
+                    </button>
+                  </div>
+                </div>
+
+                {saveError && (
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
+                  >
+                    {saveError}
+                  </div>
+                )}
+
+                <textarea
+                  dir="ltr"
+                  aria-label={`Writing Task ${activeTask.task_number} response`}
+                  value={draft}
+                  onChange={(event) =>
+                    changeDraft(activeTask.id, event.target.value)
+                  }
+                  spellCheck
+                  placeholder="Write your response here…"
+                  className="min-h-[28rem] w-full flex-1 resize-y rounded-[1.6rem] border border-[#18302d]/12 bg-[#fffdf8] px-5 py-5 text-left font-serif text-lg leading-9 text-[#263b38] shadow-[0_16px_50px_rgba(24,48,45,0.06)] outline-none transition focus:border-[#5d3d73]/45 focus:ring-4 focus:ring-[#5d3d73]/8 sm:min-h-[34rem] sm:px-7 sm:py-6"
+                />
+
+                <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-[#fffdf8] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-6 text-[#65716e]">
+                    پیش‌نویس با فاصلهٔ کوتاه و فقط هنگام تغییر متن ذخیره می‌شود.
+                    پایان زمان پاسخ را خودکار ثبت نمی‌کند.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setReviewing(true)}
+                    disabled={
+                      pendingSaves > 0 ||
+                      Boolean(conflict) ||
+                      attempt.tasks.some((task) => !drafts[task.id]?.trim())
+                    }
+                    className="shrink-0 rounded-xl bg-[#18302d] px-6 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    مرور و ثبت پاسخ
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )
       ) : (
         <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-14">
           <section className="mb-7 rounded-[2rem] bg-[#18302d] p-6 text-white sm:p-8">
@@ -1320,6 +1868,9 @@ export function WritingWorkspace() {
                         task.submission?.id === evaluation.submission_id,
                     )?.submission?.text_content ?? ''
                   }
+                  onDecision={decideOnFeedback}
+                  onRewrite={(item) => startRewrite(evaluation, item)}
+                  pendingFeedbackItemId={pendingFeedbackItemId}
                 />
               ))}
               <div className="flex justify-center pt-2">

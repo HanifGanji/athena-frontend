@@ -23,6 +23,8 @@ const prompt = {
     { kind: 'question', text: 'State and support your position.', sequence: 1 },
   ],
   assets: [],
+  planning_questions: [],
+  response_shape: 'opinion',
   criteria: [
     {
       code: 'task-response',
@@ -70,12 +72,22 @@ function attempt(status = 'in_progress', response = initialResponse) {
   return {
     id: 'attempt-1',
     mode: 'single_task',
+    experience_mode: 'exam',
+    experience: {
+      title: 'Exam simulation',
+      timer_enabled: true,
+      planning_enabled: false,
+      post_submission_feedback_enabled: true,
+      rewrite_enabled: true,
+      version_number: 1,
+    },
     status,
     started_at: new Date().toISOString(),
     last_activity_at: new Date().toISOString(),
     submitted_at: status === 'in_progress' ? null : new Date().toISOString(),
     completed_at: null,
     active_duration_seconds: 0,
+    parent_submission_id: null,
     tasks: [
       {
         id: 'task-1',
@@ -85,6 +97,7 @@ function attempt(status = 'in_progress', response = initialResponse) {
         recommended_time_seconds: 2400,
         prompt,
         response,
+        plan: null,
         ...(status === 'in_progress'
           ? {}
           : {
@@ -124,6 +137,8 @@ describe('WritingPage', () => {
         const url = String(input)
         if (url.endsWith('/writing/prompts/')) return json([promptSummary])
         if (url.endsWith('/writing/tests/')) return json([])
+        if (url.endsWith('/writing/attempts/')) return json([])
+        if (url.endsWith('/writing/progress/')) return json({ skills: [] })
         if (url.endsWith('/writing/prompts/demo/attempts/')) {
           return json(attempt(), 201)
         }
@@ -167,8 +182,11 @@ describe('WritingPage', () => {
                 })),
                 feedback_items: [
                   {
+                    id: 'feedback-1',
                     kind: 'strength',
                     criterion_code: 'task-response',
+                    skill_code: 'position-clarity',
+                    skill_name_fa: 'شفافیت موضع',
                     title_fa: 'موضع روشن',
                     explanation_fa: 'دیدگاه اصلی از ابتدا مشخص است.',
                     original_excerpt: 'Public services',
@@ -176,10 +194,14 @@ describe('WritingPage', () => {
                     start_offset: 0,
                     end_offset: 15,
                     sequence: 1,
+                    learner_decision: null,
                   },
                   {
+                    id: 'feedback-2',
                     kind: 'strength',
                     criterion_code: 'task-response',
+                    skill_code: 'evidence-relevance',
+                    skill_name_fa: 'پشتیبانی مرتبط',
                     title_fa: 'نتیجهٔ مرتبط',
                     explanation_fa:
                       'نتیجهٔ اجتماعی مستقیماً به ادعا مربوط است.',
@@ -190,10 +212,14 @@ describe('WritingPage', () => {
                       submittedEssay.indexOf('fairer cities') +
                       'fairer cities'.length,
                     sequence: 2,
+                    learner_decision: null,
                   },
                   {
+                    id: 'feedback-3',
                     kind: 'improvement',
                     criterion_code: 'task-response',
+                    skill_code: 'idea-development',
+                    skill_name_fa: 'بسط ایده',
                     title_fa: 'فعل کلی',
                     explanation_fa:
                       'فعل support نوع حمایت را مشخص نمی‌کند و استدلال را مبهم می‌گذارد.',
@@ -204,10 +230,14 @@ describe('WritingPage', () => {
                       submittedEssay.indexOf('can support') +
                       'can support'.length,
                     sequence: 3,
+                    learner_decision: null,
                   },
                   {
+                    id: 'feedback-4',
                     kind: 'improvement',
                     criterion_code: 'task-response',
+                    skill_code: 'task-coverage',
+                    skill_name_fa: 'پوشش کامل سؤال',
                     title_fa: 'دامنهٔ مخاطب نامشخص',
                     explanation_fa:
                       'عبارت every household تفاوت نیازهای خانوارها را نشان نمی‌دهد.',
@@ -218,10 +248,14 @@ describe('WritingPage', () => {
                       submittedEssay.indexOf('every household') +
                       'every household'.length,
                     sequence: 4,
+                    learner_decision: null,
                   },
                   {
+                    id: 'feedback-5',
                     kind: 'language_issue',
                     criterion_code: 'lexical-resource',
+                    skill_code: 'word-choice-precision',
+                    skill_name_fa: 'دقت انتخاب واژه',
                     title_fa: 'انتخاب واژهٔ دقیق‌تر',
                     explanation_fa:
                       'create درست است اما اثر سیاست را با دقت کافی بیان نمی‌کند.',
@@ -231,11 +265,13 @@ describe('WritingPage', () => {
                     end_offset:
                       submittedEssay.indexOf('create') + 'create'.length,
                     sequence: 5,
+                    learner_decision: null,
                   },
                 ],
                 recommendations: [
                   {
                     criterion_code: 'task-response',
+                    skill_code: 'idea-development',
                     title_fa: 'تمرین بسط ایده',
                     action_fa: 'برای هر ادعا یک دلیل و مثال بنویس.',
                     reason_fa: 'پاسخ کامل‌تر و متقاعدکننده‌تر می‌شود.',
@@ -325,6 +361,8 @@ describe('WritingPage', () => {
       const url = String(input)
       if (url.endsWith('/writing/prompts/')) return json([promptSummary])
       if (url.endsWith('/writing/tests/')) return json([])
+      if (url.endsWith('/writing/attempts/')) return json([])
+      if (url.endsWith('/writing/progress/')) return json({ skills: [] })
       if (url.endsWith('/writing/prompts/demo/attempts/')) {
         return json(attempt(), 201)
       }
@@ -363,5 +401,134 @@ describe('WritingPage', () => {
     expect(editor).toHaveValue(
       'This is the newer saved version from another tab.',
     )
+  })
+
+  it('keeps exam mode as default and runs guided planning without AI', async () => {
+    const planningQuestions = [
+      {
+        id: 'plan-question-1',
+        kind: 'position',
+        title_fa: 'موضع تو چیست؟',
+        hint_fa: 'تصمیم اصلی را بنویس.',
+        sequence: 1,
+        required: true,
+      },
+      {
+        id: 'plan-question-2',
+        kind: 'main_idea',
+        title_fa: 'ایدهٔ اصلی',
+        hint_fa: 'قوی‌ترین دلیل را بنویس.',
+        sequence: 2,
+        required: true,
+      },
+    ]
+    const guidedAttempt = {
+      ...attempt(),
+      experience_mode: 'guided',
+      experience: {
+        title: 'Guided learning',
+        timer_enabled: false,
+        planning_enabled: true,
+        post_submission_feedback_enabled: true,
+        rewrite_enabled: true,
+        version_number: 1,
+      },
+      tasks: [
+        {
+          ...attempt().tasks[0],
+          prompt: {
+            ...prompt,
+            assets: [
+              {
+                id: 'asset-1',
+                kind: 'chart',
+                url: '/writing/assets/asset-1/',
+                alt_text: 'Public transport comparison chart',
+                caption: '',
+                sequence: 1,
+                width_pixels: 1200,
+                height_pixels: 720,
+              },
+            ],
+            planning_questions: planningQuestions,
+          },
+          plan: {
+            status: 'draft',
+            revision_number: 0,
+            entries: [],
+            updated_at: new Date().toISOString(),
+            completed_at: null,
+          },
+        },
+      ],
+    }
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation((input, init) => {
+        const url = String(input)
+        if (url.endsWith('/writing/prompts/')) return json([promptSummary])
+        if (url.endsWith('/writing/tests/')) return json([])
+        if (url.endsWith('/writing/attempts/')) return json([])
+        if (url.endsWith('/writing/progress/')) return json({ skills: [] })
+        if (url.endsWith('/writing/prompts/demo/attempts/')) {
+          const body = JSON.parse(String(init?.body)) as {
+            experience_mode: string
+          }
+          expect(body.experience_mode).toBe('guided')
+          return json(guidedAttempt, 201)
+        }
+        if (url.endsWith('/tasks/task-1/plan/')) {
+          return json({
+            cached: false,
+            plan: {
+              ...guidedAttempt.tasks[0]!.plan,
+              status: 'complete',
+              revision_number: 1,
+              entries: planningQuestions.map((question) => ({
+                question_id: question.id,
+                text_content: 'Learner plan',
+                updated_at: new Date().toISOString(),
+              })),
+              completed_at: new Date().toISOString(),
+            },
+          })
+        }
+        return json({ detail: `Unexpected request: ${url}` }, 500)
+      })
+
+    render(<WritingPage />)
+
+    expect(
+      await screen.findByRole('button', { name: /شبیه‌سازی آزمون/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /یادگیری هدایت‌شده/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'شروع نوشتن ←' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'نقشهٔ کوتاه پاسخ خودت' }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('img', {
+        name: 'Public transport comparison chart',
+      }),
+    ).toBeVisible()
+    const planFields = screen.getAllByPlaceholderText(
+      'تصمیم خودت را کوتاه و روشن بنویس…',
+    )
+    for (const field of planFields) {
+      fireEvent.change(field, { target: { value: 'Learner plan' } })
+    }
+    fireEvent.click(
+      screen.getByRole('button', { name: 'ذخیرهٔ نقشه و شروع نوشتن' }),
+    )
+
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'Writing Task 2 response',
+      }),
+    ).toBeVisible()
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes('/feedback/')),
+    ).toBe(false)
   })
 })

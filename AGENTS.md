@@ -17,6 +17,11 @@
 - Writing feedback is an explicit learner action with a server-enforced daily
   allowance. Render the normalized criterion, strength, improvement, excerpt,
   rewrite, and next-action fields; do not depend on provider JSON shapes.
+- Exam is the default Writing experience. Keep Guided mode a distinct,
+  learner-authored planning and post-feedback rewrite loop. Do not add generative
+  suggestions before submission. Preserve attempt history, feedback decisions,
+  focused-skill rewrite lineage, and the learner-visible Task 1 visual without
+  sending that visual from the browser for evaluation.
 
 Before handing off changes, run:
 

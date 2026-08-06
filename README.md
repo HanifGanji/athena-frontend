@@ -58,18 +58,22 @@ separate confirmed action abandons them. Audio is sent transiently for STT/TTS
 and never stored; the English transcript and session timing are saved. Provider,
 authentication, and rate-limit failures expose nearby recoverable actions.
 
-The authenticated `/writing` workspace lists published single tasks and full
-mocks, displays the original English prompt beside an LTR editor, counts words,
-shows the IELTS timer, and debounces autosave. Draft saves use optimistic
-revision numbers and expose an explicit choice if another tab has saved a newer
-version. Submission is reviewed and immutable; below-minimum work can still be
-submitted with a realistic warning. AI feedback is requested separately after
-submission and renders independently calibrated criterion estimates. The result
-keeps the learner's full essay visible, highlights evidence-linked strengths and
-issues inline, and opens a focused explanation with the original wording and a
-concrete rewrite. Prioritized practice actions turn the review into a next-step
-plan. The UI labels every band as an educational estimate and explains the daily
-feedback allowance; ordinary drafting never calls AI.
+The authenticated `/writing` workspace lists original single-task pilots and a
+full mock, plus resumable attempt history and stable skill signals. Exam mode is
+the default faithful experience. Guided mode is a separate, pressure-free loop
+with deterministic planning questions answered by the learner, followed by
+post-feedback rewrite practice; it never uses generative AI before submission.
+
+The workspace displays the English prompt and Task 1 chart beside an LTR editor,
+counts words, applies the selected experience timer policy, and debounces
+autosave. Saves use optimistic revisions and expose an explicit choice if another
+tab has newer work. Submission is reviewed and immutable; below-minimum work can
+still be submitted with a realistic warning. AI feedback is a separate paid
+action and renders independently calibrated criterion estimates. The result keeps
+the full essay visible, highlights evidence-linked observations, opens focused
+explanations and rewrites, and lets learners accept, fix, dismiss, or mark an item
+unhelpful. A rewrite preserves the original attempt and its learning lineage. The
+UI labels every band as an educational estimate and explains the daily allowance.
 
 Useful checks:
 
