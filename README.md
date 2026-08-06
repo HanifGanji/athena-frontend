@@ -15,12 +15,12 @@ npx --yes pnpm@11.17.0 dev
 Open http://localhost:3000.
 
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
-Reading and Speaking are functional; Writing and Listening currently show
-product placeholders. The home page stays public, while all four module routes
+Reading, Writing, and Speaking are functional; Listening currently shows a
+product placeholder. The home page stays public, while all four module routes
 require an authenticated session.
 
-The Reading and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`, defaulting locally to
-`http://localhost:8000/api/v1`.
+The Reading, Writing, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
+defaulting locally to `http://localhost:8000/api/v1`.
 
 ### Development authentication
 
@@ -57,6 +57,23 @@ response is submitted. Navigation preserves in-progress sessions, while a
 separate confirmed action abandons them. Audio is sent transiently for STT/TTS
 and never stored; the English transcript and session timing are saved. Provider,
 authentication, and rate-limit failures expose nearby recoverable actions.
+
+The authenticated `/writing` workspace lists original single-task pilots and a
+full mock, plus resumable attempt history and stable skill signals. Exam mode is
+the default faithful experience. Guided mode is a separate, pressure-free loop
+with deterministic planning questions answered by the learner, followed by
+post-feedback rewrite practice; it never uses generative AI before submission.
+
+The workspace displays the English prompt and Task 1 chart beside an LTR editor,
+counts words, applies the selected experience timer policy, and debounces
+autosave. Saves use optimistic revisions and expose an explicit choice if another
+tab has newer work. Submission is reviewed and immutable; below-minimum work can
+still be submitted with a realistic warning. AI feedback is a separate paid
+action and renders independently calibrated criterion estimates. The result keeps
+the full essay visible, highlights evidence-linked observations, opens focused
+explanations and rewrites, and lets learners accept, fix, dismiss, or mark an item
+unhelpful. A rewrite preserves the original attempt and its learning lineage. The
+UI labels every band as an educational estimate and explains the daily allowance.
 
 Useful checks:
 

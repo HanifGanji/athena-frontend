@@ -182,3 +182,8 @@ export async function apiRequest<T>(
 export function jsonBody(value: unknown) {
   return JSON.stringify(value)
 }
+
+export function absoluteApiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path
+  return new URL(path, new URL(API_BASE_URL).origin).toString()
+}
