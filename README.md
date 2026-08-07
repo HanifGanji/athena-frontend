@@ -14,6 +14,32 @@ npx --yes pnpm@11.17.0 dev
 
 Open http://localhost:3000.
 
+## Docker
+
+Build and run the optimized production image from the repository root:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1 \
+  -t athena-frontend .
+docker run --rm -p 127.0.0.1:3000:3000 athena-frontend
+```
+
+The image uses Next.js standalone output and runs as a non-root user. Because
+`NEXT_PUBLIC_API_BASE_URL` is compiled into the browser bundle, changing it
+requires rebuilding the image.
+
+The frontend has its own Compose stack and does not depend on the backend
+repository structure:
+
+```bash
+docker compose up --build
+```
+
+Run the backend Compose stack separately from the backend repository. With the
+default ports, the browser loads the frontend from `http://localhost:3000` and
+calls the backend at `http://localhost:8000/api/v1`.
+
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
 All four modules are functional. The home page stays public, while every module
 route requires an authenticated session.
@@ -46,10 +72,11 @@ cookies across ports:
 
 Do not mix `localhost` and `127.0.0.1`. The backend must also allow the chosen
 frontend origin with credentialed CORS. When using `127.0.0.1`, set
-`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`. After pulling the custom-user migration,
-reset disposable local SQLite or Docker PostgreSQL data as described in the
-backend README, rerun migrations, and reseed the Reading demo before registering
-through the UI.
+`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`. After pulling the
+custom-user migration, reset disposable local SQLite or Docker PostgreSQL data
+as described in the backend README, rerun migrations, import the Reading
+packages, and seed the Listening and Writing demos before registering through
+the UI.
 
 The authenticated `/speaking` experience provides complete, resumable IELTS
 and current-format TOEFL sessions. It checks microphone access, plays each

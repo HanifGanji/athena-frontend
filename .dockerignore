@@ -1,0 +1,17 @@
+.git
+.github
+.next
+**/.next
+.pnpm-store
+.turbo
+**/.turbo
+node_modules
+**/node_modules
+coverage
+**/coverage
+dist
+**/dist
+.env
+.env.*
+*.log
+skills
