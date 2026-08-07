@@ -41,12 +41,19 @@ default ports, the browser loads the frontend from `http://localhost:3000` and
 calls the backend at `http://localhost:8000/api/v1`.
 
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
-Reading, Writing, and Speaking are functional; Listening currently shows a
-product placeholder. The home page stays public, while all four module routes
-require an authenticated session.
+All four modules are functional. The home page stays public, while every module
+route requires an authenticated session.
 
-The Reading, Writing, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
+The Reading, Writing, Listening, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
 defaulting locally to `http://localhost:8000/api/v1`.
+
+The authenticated `/listening` workspace groups tests by series and supports
+completion documents, responsive forms and tables, multi-column notes,
+flowcharts, single and multiple choice, matching, and accessible map labeling.
+It plays protected part audio at selectable speeds, autosaves each question
+group, scrolls and focuses from the question navigator, submits deterministic
+answers, and renders per-question results. Publisher-source exercises remain
+clearly labeled for local rights review.
 
 ### Development authentication
 
@@ -65,10 +72,11 @@ cookies across ports:
 
 Do not mix `localhost` and `127.0.0.1`. The backend must also allow the chosen
 frontend origin with credentialed CORS. When using `127.0.0.1`, set
-`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`. After pulling the custom-user migration,
-reset disposable local SQLite or Docker PostgreSQL data as described in the
-backend README, rerun migrations, and reseed the Reading demo before registering
-through the UI.
+`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`. After pulling the
+custom-user migration, reset disposable local SQLite or Docker PostgreSQL data
+as described in the backend README, rerun migrations, import the Reading
+packages, and seed the Listening and Writing demos before registering through
+the UI.
 
 The authenticated `/speaking` experience provides complete, resumable IELTS
 and current-format TOEFL sessions. It checks microphone access, plays each
