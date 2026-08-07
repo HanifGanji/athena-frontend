@@ -15,12 +15,19 @@ npx --yes pnpm@11.17.0 dev
 Open http://localhost:3000.
 
 The home page links to `/reading`, `/writing`, `/listening`, and `/speaking`.
-Reading, Writing, and Speaking are functional; Listening currently shows a
-product placeholder. The home page stays public, while all four module routes
-require an authenticated session.
+All four modules are functional. The home page stays public, while every module
+route requires an authenticated session.
 
-The Reading, Writing, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
+The Reading, Writing, Listening, and Speaking clients use `NEXT_PUBLIC_API_BASE_URL`,
 defaulting locally to `http://localhost:8000/api/v1`.
+
+The authenticated `/listening` workspace groups tests by series and supports
+completion documents, responsive forms and tables, multi-column notes,
+flowcharts, single and multiple choice, matching, and accessible map labeling.
+It plays protected part audio at selectable speeds, autosaves each question
+group, scrolls and focuses from the question navigator, submits deterministic
+answers, and renders per-question results. Publisher-source exercises remain
+clearly labeled for local rights review.
 
 ### Development authentication
 
