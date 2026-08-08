@@ -99,6 +99,13 @@ export type ReadingAttempt = {
   submitted_at: string | null
   raw_score: number | null
   maximum_score: number | null
+  manifest: Record<string, unknown>
+  active_duration_seconds: number
+  responses: {
+    group_id: string
+    answer_payload: { answers: Record<string, string> }
+    updated_at: string
+  }[]
 }
 
 export type EvaluationResult = {
@@ -117,6 +124,12 @@ export type Evaluation = {
   maximum_score: number
   created_at: string
   results: EvaluationResult[]
+}
+
+export type ReadingStaffPreview = {
+  test_slug: string
+  attempt: ReadingAttempt
+  evaluation: Evaluation
 }
 
 export type AgentFeedback = {
@@ -158,6 +171,11 @@ export const readingApi = {
     }),
   requestFeedback: (attemptId: string) =>
     apiRequest<AgentFeedback>(`/reading/attempts/${attemptId}/feedback/`, {
+      method: 'POST',
+      body: jsonBody({}),
+    }),
+  getStaffPreview: () =>
+    apiRequest<ReadingStaffPreview>('/staff/test-previews/reading/', {
       method: 'POST',
       body: jsonBody({}),
     }),

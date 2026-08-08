@@ -6,6 +6,7 @@ export type AuthUser = {
   first_name: string
   last_name: string
   email: string
+  is_staff: boolean
 }
 
 export type RegistrationDetails = {

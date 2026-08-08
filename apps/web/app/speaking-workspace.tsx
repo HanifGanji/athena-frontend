@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
+import { useOptionalAuth } from '@/app/auth-provider'
 import { SpeakingExaminer } from '@/app/speaking/speaking-examiner'
 import { SpeakingLanding } from '@/app/speaking/speaking-landing'
 import {
@@ -64,6 +65,7 @@ function closingTurn(session: SpeakingSession) {
 }
 
 export function SpeakingWorkspace() {
+  const auth = useOptionalAuth()
   const [state, dispatch] = useReducer(speakingMachine, initialSpeakingState)
   const [prepared, setPrepared] = useState<PreparedTake | null>(null)
   const [speechUrl, setSpeechUrl] = useState<string | null>(null)
@@ -77,6 +79,8 @@ export function SpeakingWorkspace() {
   const [feedbackBySession, setFeedbackBySession] = useState<
     Record<string, SpeakingFeedback>
   >({})
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const mountedRef = useRef(true)
   const preparedRef = useRef<PreparedTake | null>(null)
@@ -600,6 +604,25 @@ export function SpeakingWorkspace() {
     }))
   }, [])
 
+  async function openStaffPreview() {
+    setPreviewLoading(true)
+    setPreviewError(null)
+    try {
+      const { session } = await speakingApi.getStaffPreview()
+      const feedback = await speakingApi.getOrCreateFeedback(session.id)
+      feedbackLoaded(feedback)
+      dispatch({ type: 'show_history', session })
+    } catch (reason) {
+      setPreviewError(
+        reason instanceof Error
+          ? reason.message
+          : 'پیش‌نمایش کارکنان آماده نشد.',
+      )
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   if (['landing', 'creating_session'].includes(state.phase) || !state.session) {
     return (
       <SpeakingLanding
@@ -614,6 +637,15 @@ export function SpeakingWorkspace() {
         onResume={(session) => void resumeSession(session)}
         onSelectExam={(examType) => dispatch({ type: 'select_exam', examType })}
         onStart={() => void startPractice()}
+        staffPreview={
+          auth?.user?.is_staff
+            ? {
+                error: previewError,
+                loading: previewLoading,
+                onOpen: () => void openStaffPreview(),
+              }
+            : null
+        }
       />
     )
   }

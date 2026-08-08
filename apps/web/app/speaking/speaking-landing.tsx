@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef } from 'react'
 
+import { StaffTestPreviewCard } from '@/app/staff-test-preview-card'
 import type {
   SpeakingExamType,
   SpeakingSessionSummary,
@@ -28,6 +29,11 @@ type SpeakingLandingProps = {
   onStart: () => void
   phase: SpeakingPhase
   sessions: SpeakingSessionSummary[]
+  staffPreview: {
+    error: string | null
+    loading: boolean
+    onOpen: () => void
+  } | null
 }
 
 export function SpeakingLanding({
@@ -42,6 +48,7 @@ export function SpeakingLanding({
   onStart,
   phase,
   sessions,
+  staffPreview,
 }: SpeakingLandingProps) {
   const errorRef = useRef<HTMLDivElement | null>(null)
   const starting = phase === 'creating_session'
@@ -137,6 +144,15 @@ export function SpeakingLanding({
           >
             {error}
           </div>
+        )}
+
+        {staffPreview && (
+          <StaffTestPreviewCard
+            moduleLabel="Speaking"
+            error={staffPreview.error}
+            loading={staffPreview.loading}
+            onOpen={staffPreview.onOpen}
+          />
         )}
 
         <section

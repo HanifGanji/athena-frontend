@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOptionalAuth } from '@/app/auth-provider'
+import { StaffTestPreviewCard } from '@/app/staff-test-preview-card'
 import {
   type AgentFeedback,
   type Evaluation,
@@ -61,6 +63,7 @@ function googleTranslateUrl(text: string) {
 }
 
 export function ReadingWorkspace() {
+  const auth = useOptionalAuth()
   const [tests, setTests] = useState<ReadingTestSummary[]>([])
   const [test, setTest] = useState<ReadingTest | null>(null)
   const [attempt, setAttempt] = useState<ReadingAttempt | null>(null)
@@ -82,6 +85,8 @@ export function ReadingWorkspace() {
   const [pendingSaves, setPendingSaves] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const answersRef = useRef<Record<string, string>>({})
@@ -187,6 +192,42 @@ export function ReadingWorkspace() {
       )
     } finally {
       setStartingSlug(null)
+    }
+  }
+
+  async function openStaffPreview() {
+    setPreviewLoading(true)
+    setPreviewError(null)
+    try {
+      const preview = await readingApi.getStaffPreview()
+      const testPayload = await readingApi.getTest(preview.test_slug)
+      const previewAnswers = Object.assign(
+        {},
+        ...preview.attempt.responses.map(
+          (response) => response.answer_payload.answers,
+        ),
+      ) as Record<string, string>
+      setTest(testPayload)
+      setAttempt(preview.attempt)
+      answersRef.current = previewAnswers
+      setAnswers(previewAnswers)
+      setEvaluation(preview.evaluation)
+      setFeedback(null)
+      setActiveSectionIndex(0)
+      setActiveQuestionNumber(null)
+      setHighlightedBlockId(null)
+      setSelectionPopover(null)
+      saveQueues.current.clear()
+      saveFailures.current.clear()
+      setSaveError(null)
+    } catch (reason) {
+      setPreviewError(
+        reason instanceof Error
+          ? reason.message
+          : 'پیش‌نمایش کارکنان آماده نشد.',
+      )
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -424,6 +465,15 @@ export function ReadingWorkspace() {
             >
               {error}
             </div>
+          )}
+
+          {auth?.user?.is_staff && (
+            <StaffTestPreviewCard
+              moduleLabel="Reading"
+              loading={previewLoading}
+              error={previewError}
+              onOpen={() => void openStaffPreview()}
+            />
           )}
 
           <section aria-labelledby="available-tests" className="pb-16">

@@ -78,6 +78,11 @@ as described in the backend README, rerun migrations, import the Reading
 packages, and seed the Listening and Writing demos before registering through
 the UI.
 
+Staff users receive a small test-tool card on each module landing page. It opens
+the backend's seeded completed attempt so post-test UI can be exercised without
+finishing an exam manually; the control is absent for learners and the backend
+still enforces `is_staff`.
+
 The authenticated `/speaking` experience provides complete, resumable IELTS
 and current-format TOEFL sessions. It checks microphone access, plays each
 saved examiner turn, keeps recording disabled until playback finishes, and
