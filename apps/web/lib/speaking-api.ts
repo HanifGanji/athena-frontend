@@ -21,6 +21,23 @@ export type SpeakingTurnKind =
   | 'answer'
   | 'closing'
 
+export type SpeakingReviewVerdict = 'clear' | 'note' | 'warning'
+export type SpeakingReviewIssueCode =
+  | 'insufficient_response'
+  | 'off_topic'
+  | 'non_english'
+  | 'inappropriate_content'
+  | 'unusable_transcript'
+  | 'repeat_mismatch'
+
+export type SpeakingTurnReview = {
+  verdict: SpeakingReviewVerdict
+  issue_code: SpeakingReviewIssueCode | null
+  message: string
+  replacement_allowed: boolean
+  reviewed_at: string
+}
+
 export type SpeakingTurn = {
   id: string
   role: 'examiner' | 'learner'
@@ -33,6 +50,8 @@ export type SpeakingTurn = {
   suggested_duration_ms: number | null
   recording_duration_ms: number | null
   duration_difference_ms: number | null
+  revision: 1 | 2
+  review: SpeakingTurnReview | null
   is_hidden: boolean
   created_at: string
 }
@@ -71,6 +90,13 @@ export type SpeakingResponseInput = {
   filename: string
   promptId: string
   recordingDurationMs: number
+}
+
+export type SpeakingReplacementInput = Omit<
+  SpeakingResponseInput,
+  'promptId'
+> & {
+  expectedRevision: 1 | 2
 }
 
 export type SpeakingFeedbackStrength = {
@@ -130,6 +156,29 @@ export const speakingApi = {
     formData.append('recording_duration_ms', String(input.recordingDurationMs))
     return apiRequest<SpeakingSession>(
       `/speaking/sessions/${sessionId}/responses/`,
+      { method: 'POST', body: formData, signal },
+    )
+  },
+
+  reviewResponse: (sessionId: string, answerId: string, signal?: AbortSignal) =>
+    apiRequest<SpeakingSession>(
+      `/speaking/sessions/${sessionId}/turns/${answerId}/review/`,
+      { method: 'POST', body: jsonBody({}), signal },
+    ),
+
+  replaceResponse: (
+    sessionId: string,
+    answerId: string,
+    input: SpeakingReplacementInput,
+    signal?: AbortSignal,
+  ) => {
+    const formData = new FormData()
+    formData.append('audio', input.audio, input.filename)
+    formData.append('client_event_id', input.clientEventId)
+    formData.append('recording_duration_ms', String(input.recordingDurationMs))
+    formData.append('expected_revision', String(input.expectedRevision))
+    return apiRequest<SpeakingSession>(
+      `/speaking/sessions/${sessionId}/turns/${answerId}/replacement/`,
       { method: 'POST', body: formData, signal },
     )
   },

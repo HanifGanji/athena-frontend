@@ -4,12 +4,14 @@ import { useEffect, useRef } from 'react'
 
 import type { SpeakingSession, SpeakingTurn } from '@/lib/speaking-api'
 
-import { HeadphonesIcon, PlayIcon, Spinner } from './speaking-icons'
+import { HeadphonesIcon, PauseIcon, PlayIcon, Spinner } from './speaking-icons'
 import type { SpeakingPhaseView } from './speaking-machine'
 import { formatDuration, stageLabel } from './speaking-transcript'
 
 type SpeakingExaminerProps = {
+  onPause: () => void
   onPlay: () => void
+  playbackState: 'not_started' | 'playing' | 'paused' | 'ended'
   prompt: SpeakingTurn | null
   session: SpeakingSession
   speechUrl: string | null
@@ -17,7 +19,9 @@ type SpeakingExaminerProps = {
 }
 
 export function SpeakingExaminer({
+  onPause,
   onPlay,
+  playbackState,
   prompt,
   session,
   speechUrl,
@@ -36,28 +40,19 @@ export function SpeakingExaminer({
   return (
     <section
       aria-labelledby="examiner-stage-title"
-      className="relative overflow-hidden rounded-[1.75rem] bg-[var(--athena-ink)] p-5 text-white shadow-[0_24px_70px_rgba(24,48,45,0.18)] sm:p-7"
+      className="relative overflow-hidden rounded-2xl bg-[var(--athena-ink)] p-5 text-white shadow-[0_18px_48px_rgb(24_48_45/0.16)] sm:p-7"
     >
-      <div
-        aria-hidden="true"
-        className="absolute -top-24 -left-20 size-64 rounded-full bg-[#28756c]/35 blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute -right-20 -bottom-24 size-72 rounded-full bg-[#b25b3d]/20 blur-3xl"
-      />
-
       <div className="relative">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-mono text-[10px] tracking-[0.18em] text-[var(--athena-coral)]">
+            <p className="font-mono text-xs tracking-[0.12em] text-[var(--athena-coral)]">
               {prompt ? stageLabel(prompt.stage) : 'SPEAKING SESSION'}
             </p>
-            <h2 id="examiner-stage-title" className="mt-2 text-xl font-black">
+            <h2 id="examiner-stage-title" className="mt-2 text-xl font-bold">
               ممتحن آتنا
             </h2>
           </div>
-          <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 text-[10px] font-black text-[#dcebe5]">
+          <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 text-xs font-semibold text-[#dcebe5]">
             <span
               aria-hidden="true"
               className={`size-2 rounded-full ${
@@ -70,7 +65,7 @@ export function SpeakingExaminer({
           </span>
         </div>
 
-        <div className="grid min-h-[15rem] place-items-center py-7 text-center sm:min-h-[20rem] sm:py-8">
+        <div className="grid min-h-[13rem] place-items-center py-6 text-center sm:min-h-[17rem] sm:py-8">
           <div
             ref={promptRegionRef}
             tabIndex={-1}
@@ -132,24 +127,34 @@ export function SpeakingExaminer({
               </p>
             )}
 
-            {canPlay && (
+            {playing ? (
+              <button
+                type="button"
+                onClick={onPause}
+                className="mx-auto mt-6 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-6 py-3 text-base font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+              >
+                <PauseIcon className="size-5" />
+                توقف موقت
+              </button>
+            ) : canPlay ? (
               <button
                 type="button"
                 onClick={onPlay}
-                className="mx-auto mt-6 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--athena-coral)] px-6 py-3 text-sm font-black text-[#3a2119] shadow-lg shadow-black/15 transition hover:-translate-y-0.5 hover:bg-[#ffc4a3] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white motion-reduce:transform-none"
+                className="mx-auto mt-6 flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[var(--athena-coral)] px-6 py-3 text-base font-bold text-[#3a2119] shadow-lg shadow-black/15 transition hover:bg-[#ffc4a3] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
               >
                 <PlayIcon className="size-5" />
-                پخش صدای ممتحن
+                {playbackState === 'paused'
+                  ? 'ادامهٔ پخش'
+                  : playbackState === 'ended'
+                    ? 'پخش دوباره'
+                    : 'پخش سؤال'}
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-[11px] text-[#b8c7c3]">
           <p>ضبط پس از پایان صدای ممتحن فعال می‌شود.</p>
-          <p dir="ltr" className="font-mono">
-            {session.response_count}/{session.required_response_count} RESPONSES
-          </p>
         </div>
       </div>
     </section>

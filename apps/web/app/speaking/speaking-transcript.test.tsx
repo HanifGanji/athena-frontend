@@ -17,6 +17,8 @@ function examinerTurn(index: number): SpeakingTurn {
     kind: 'question',
     prompt_id: null,
     recording_duration_ms: null,
+    review: null,
+    revision: 1,
     role: 'examiner',
     sequence: index,
     stage: 'ielts_part_1',

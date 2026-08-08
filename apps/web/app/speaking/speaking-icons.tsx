@@ -36,6 +36,14 @@ export function PlayIcon({ className = 'size-6' }: IconProps) {
   )
 }
 
+export function PauseIcon({ className = 'size-6' }: IconProps) {
+  return (
+    <svg {...iconProps} className={className}>
+      <path d="M8 6v12M16 6v12" strokeWidth="2.5" />
+    </svg>
+  )
+}
+
 export function StopIcon({ className = 'size-6' }: IconProps) {
   return (
     <svg {...iconProps} className={className}>

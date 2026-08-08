@@ -119,6 +119,13 @@ export function SpeakingSummary({
               هیچ نمره، تخمین باند یا تشخیص سطحی محاسبه نمی‌شود. بازخورد این
               صفحه فقط برای تمرین بعدی است.
             </div>
+            <button
+              type="button"
+              onClick={onStartAnother}
+              className="mt-5 min-h-12 w-full rounded-xl bg-white px-5 py-3 text-base font-bold text-[var(--athena-ink)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-white"
+            >
+              شروع تمرین تازه
+            </button>
             {speechReady && onPlayClosing && (
               <button
                 type="button"
@@ -147,43 +154,41 @@ export function SpeakingSummary({
             )}
           </div>
 
-          <dl className="grid grid-cols-2 gap-3 rounded-[1.75rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] p-5 shadow-[0_16px_45px_rgba(24,48,45,0.06)] sm:p-6">
-            <div className="rounded-2xl bg-[var(--athena-mint)] p-4">
-              <dt className="text-xs font-bold text-[var(--athena-muted)]">
-                پاسخ‌های ثبت‌شده
-              </dt>
-              <dd className="mt-2 text-2xl font-black">
-                {session.response_count.toLocaleString('fa-IR')}
-              </dd>
-            </div>
-            <div className="rounded-2xl bg-[var(--athena-sand)] p-4">
-              <dt className="text-xs font-bold text-[var(--athena-muted)]">
-                کل زمان ضبط
-              </dt>
-              <dd dir="ltr" className="mt-2 font-mono text-2xl font-black">
-                {formatDuration(session.timing_summary.actual_duration_ms)}
-              </dd>
-            </div>
-            <div className="rounded-2xl bg-[var(--athena-sand)] p-4">
-              <dt className="text-xs font-bold text-[var(--athena-muted)]">
-                زمان پیشنهادی
-              </dt>
-              <dd dir="ltr" className="mt-2 font-mono text-2xl font-black">
+          <section
+            aria-labelledby="session-details-title"
+            className="rounded-2xl border border-[var(--athena-border)] bg-[var(--athena-paper)] p-5 shadow-[0_12px_32px_rgb(24_48_45/0.05)] sm:p-6"
+          >
+            <h2 id="session-details-title" className="text-lg font-bold">
+              جزئیات جلسه
+            </h2>
+            <dl className="mt-5 divide-y divide-[var(--athena-border)]">
+              <div className="flex items-center justify-between gap-4 py-3">
+                <dt className="text-sm text-[var(--athena-muted)]">
+                  پاسخ‌های ثبت‌شده
+                </dt>
+                <dd className="text-lg font-bold">
+                  {session.response_count.toLocaleString('fa-IR')}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3">
+                <dt className="text-sm text-[var(--athena-muted)]">
+                  مجموع زمان صحبت
+                </dt>
+                <dd dir="ltr" className="font-mono text-lg font-bold">
+                  {formatDuration(session.timing_summary.actual_duration_ms)}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-4 text-sm leading-7 text-[var(--athena-muted)]">
+              زمان پیشنهادی{' '}
+              <span dir="ltr" className="font-mono">
                 {formatDuration(session.timing_summary.suggested_duration_ms)}
-              </dd>
-            </div>
-            <div className="rounded-2xl bg-[var(--athena-peach)] p-4">
-              <dt className="text-xs font-bold text-[var(--athena-muted)]">
-                مقایسهٔ زمانی
-              </dt>
-              <dd className="mt-2 text-sm leading-6 font-black text-[var(--athena-rust-dark)]">
-                {differenceLabel(session.timing_summary.difference_ms)}
-              </dd>
-            </div>
-          </dl>
+              </span>
+              ؛ {differenceLabel(session.timing_summary.difference_ms)}. این
+              زمان‌ها فقط جزئیات تمرین‌اند و نمره نیستند.
+            </p>
+          </section>
         </section>
-
-        <SpeakingTranscript session={session} compact />
 
         {completed && onFeedbackLoaded && (
           <SpeakingFeedbackPanel
@@ -193,18 +198,15 @@ export function SpeakingSummary({
           />
         )}
 
-        <div className="grid gap-3 py-7 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={onStartAnother}
-            className="min-h-12 rounded-2xl bg-[var(--athena-teal)] px-6 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
-          >
-            شروع یک تمرین تازه
-          </button>
+        <div className="mt-6">
+          <SpeakingTranscript session={session} compact collapsible />
+        </div>
+
+        <div className="py-7">
           <button
             type="button"
             onClick={onBack}
-            className="min-h-12 rounded-2xl border border-[var(--athena-border-strong)] bg-white px-6 py-3 text-sm font-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
+            className="min-h-12 w-full rounded-xl border border-[var(--athena-border-strong)] bg-white px-6 py-3 text-base font-semibold focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
           >
             بازگشت به تاریخچه
           </button>

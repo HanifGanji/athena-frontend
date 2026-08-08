@@ -1,14 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useOptionalAuth } from '@/app/auth-provider'
 import { SpeakingExaminer } from '@/app/speaking/speaking-examiner'
 import { SpeakingLanding } from '@/app/speaking/speaking-landing'
+import { SpeakingReviewAttention } from '@/app/speaking/speaking-review-attention'
 import {
   deriveSpeakingView,
-  initialSpeakingState,
-  speakingMachine,
   type SpeakingPhase,
 } from '@/app/speaking/speaking-machine'
 import {
@@ -16,7 +15,14 @@ import {
   SpeakingRecorder,
 } from '@/app/speaking/speaking-recorder'
 import { SpeakingSummary } from '@/app/speaking/speaking-summary'
-import { SpeakingTranscript } from '@/app/speaking/speaking-transcript'
+import {
+  type SessionOperation,
+  useSpeakingController,
+} from '@/app/speaking/use-speaking-controller'
+import {
+  SpeakingTranscript,
+  stageLabel,
+} from '@/app/speaking/speaking-transcript'
 import { ApiError } from '@/lib/api-client'
 import {
   speakingApi,
@@ -25,11 +31,6 @@ import {
   type SpeakingSessionSummary,
   type SpeakingTurn,
 } from '@/lib/speaking-api'
-
-type SessionOperation = {
-  epoch: number
-  signal: AbortSignal
-}
 
 function friendlyError(reason: unknown, fallback: string) {
   if (!(reason instanceof ApiError)) return fallback
@@ -53,6 +54,13 @@ function isAbortError(reason: unknown) {
   return reason instanceof DOMException && reason.name === 'AbortError'
 }
 
+function historyError(reason: unknown) {
+  return friendlyError(
+    reason,
+    'تاریخچهٔ جلسه‌ها بارگذاری نشد. می‌توانی دوباره تلاش کنی.',
+  )
+}
+
 function activePrompt(session: SpeakingSession | null) {
   if (!session?.current_prompt_id) return null
   return (
@@ -64,9 +72,28 @@ function closingTurn(session: SpeakingSession) {
   return [...session.turns].reverse().find((turn) => turn.kind === 'closing')
 }
 
+function latestLearnerAnswer(session: SpeakingSession) {
+  return [...session.turns].reverse().find((turn) => turn.role === 'learner')
+}
+
+function relatedPrompt(session: SpeakingSession, answer: SpeakingTurn) {
+  return answer.prompt_id
+    ? (session.turns.find((turn) => turn.id === answer.prompt_id) ?? null)
+    : null
+}
+
 export function SpeakingWorkspace() {
   const auth = useOptionalAuth()
-  const [state, dispatch] = useReducer(speakingMachine, initialSpeakingState)
+  const {
+    beginSessionOperation,
+    cancelSessionOperation,
+    dispatch,
+    loadHistory,
+    mountedRef,
+    operationEpochRef,
+    operationIsCurrent,
+    state,
+  } = useSpeakingController({ historyError, isAbortError })
   const [prepared, setPrepared] = useState<PreparedTake | null>(null)
   const [speechUrl, setSpeechUrl] = useState<string | null>(null)
   const [abandonOpen, setAbandonOpen] = useState(false)
@@ -81,16 +108,19 @@ export function SpeakingWorkspace() {
   >({})
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null)
+  const [replacementAnswerId, setReplacementAnswerId] = useState<string | null>(
+    null,
+  )
+  const [playbackState, setPlaybackState] = useState<
+    'not_started' | 'playing' | 'paused' | 'ended'
+  >('not_started')
 
-  const mountedRef = useRef(true)
   const preparedRef = useRef<PreparedTake | null>(null)
   const speechUrlRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const sessionRef = useRef<SpeakingSession | null>(null)
   const answerCommittedRef = useRef(false)
-  const operationControllerRef = useRef<AbortController | null>(null)
-  const operationEpochRef = useRef(0)
-  const historyControllerRef = useRef<AbortController | null>(null)
   const submissionTimerRef = useRef<number | null>(null)
   const errorRef = useRef<HTMLDivElement | null>(null)
   const abandonTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -146,33 +176,18 @@ export function SpeakingWorkspace() {
     }
     speechUrlRef.current = nextUrl
     setSpeechUrl(nextUrl)
-  }, [])
-
-  const cancelSessionOperation = useCallback(() => {
-    operationEpochRef.current += 1
-    operationControllerRef.current?.abort()
-    operationControllerRef.current = null
-  }, [])
-
-  const beginSessionOperation = useCallback((): SessionOperation => {
-    operationControllerRef.current?.abort()
-    const controller = new AbortController()
-    operationControllerRef.current = controller
-    const epoch = ++operationEpochRef.current
-    return { epoch, signal: controller.signal }
-  }, [])
-
-  const operationIsCurrent = useCallback((operation: SessionOperation) => {
-    return (
-      mountedRef.current &&
-      !operation.signal.aborted &&
-      operationEpochRef.current === operation.epoch
-    )
+    setPlaybackState('not_started')
   }, [])
 
   useEffect(() => {
     sessionRef.current = state.session
   }, [state.session])
+
+  useEffect(() => {
+    if (!reviewNotice) return
+    const timeout = window.setTimeout(() => setReviewNotice(null), 8_000)
+    return () => window.clearTimeout(timeout)
+  }, [reviewNotice])
 
   useEffect(() => {
     if (
@@ -185,12 +200,7 @@ export function SpeakingWorkspace() {
   }, [state.error, state.phase, state.retryAction])
 
   useEffect(() => {
-    mountedRef.current = true
     return () => {
-      mountedRef.current = false
-      operationEpochRef.current += 1
-      operationControllerRef.current?.abort()
-      historyControllerRef.current?.abort()
       if (submissionTimerRef.current !== null) {
         window.clearTimeout(submissionTimerRef.current)
       }
@@ -207,37 +217,6 @@ export function SpeakingWorkspace() {
       if (speechUrlRef.current) URL.revokeObjectURL(speechUrlRef.current)
     }
   }, [])
-
-  const loadHistory = useCallback(async () => {
-    historyControllerRef.current?.abort()
-    const controller = new AbortController()
-    historyControllerRef.current = controller
-    dispatch({ type: 'history_loading' })
-    try {
-      const sessions = await speakingApi.listSessions(controller.signal)
-      if (mountedRef.current && !controller.signal.aborted) {
-        dispatch({ type: 'history_loaded', sessions })
-      }
-    } catch (reason) {
-      if (
-        mountedRef.current &&
-        !controller.signal.aborted &&
-        !isAbortError(reason)
-      ) {
-        dispatch({
-          type: 'history_failed',
-          message: friendlyError(
-            reason,
-            'تاریخچهٔ جلسه‌ها بارگذاری نشد. می‌توانی دوباره تلاش کنی.',
-          ),
-        })
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadHistory()
-  }, [loadHistory])
 
   useEffect(() => {
     const open = abandonOpen || exitOpen
@@ -284,10 +263,13 @@ export function SpeakingWorkspace() {
   ) {
     const audio = audioRef.current
     if (!audio) return
+    if (playbackState === 'ended') audio.currentTime = 0
     if (!completed) dispatch({ type: 'set_phase', phase: 'playing_examiner' })
+    setPlaybackState('playing')
     try {
       await audio.play()
     } catch {
+      setPlaybackState(audio.currentTime > 0 ? 'paused' : 'not_started')
       if (
         !completed &&
         mountedRef.current &&
@@ -301,6 +283,15 @@ export function SpeakingWorkspace() {
         })
       }
     }
+  }
+
+  function pauseExaminerAudio() {
+    const audio = audioRef.current
+    const session = sessionRef.current
+    if (!audio || !session || audio.paused) return
+    audio.pause()
+    setPlaybackState('paused')
+    dispatch({ type: 'session_loaded', session, phase: 'examiner_ready' })
   }
 
   async function loadSpeech(
@@ -328,7 +319,9 @@ export function SpeakingWorkspace() {
       audio.preload = 'auto'
       audioRef.current = audio
       audio.onended = () => {
-        if (!operationIsCurrent(operation) || completed) return
+        if (!operationIsCurrent(operation)) return
+        setPlaybackState('ended')
+        if (completed) return
         if (answerCommittedRef.current) replacePrepared(null)
         dispatch({ type: 'session_loaded', session, phase: 'ready_to_record' })
       }
@@ -412,11 +405,62 @@ export function SpeakingWorkspace() {
     }
   }
 
+  async function reviewCommittedResponse(
+    session: SpeakingSession,
+    answer: SpeakingTurn,
+    operation: SessionOperation,
+  ) {
+    dispatch({
+      type: 'session_loaded',
+      session,
+      phase: 'reviewing_response',
+    })
+    try {
+      const reviewed = await speakingApi.reviewResponse(
+        session.id,
+        answer.id,
+        operation.signal,
+      )
+      if (!operationIsCurrent(operation)) return
+      const reviewedAnswer =
+        reviewed.turns.find((turn) => turn.id === answer.id) ?? answer
+      if (reviewedAnswer.review?.verdict === 'clear') {
+        replacePrepared(null)
+        setReplacementAnswerId(null)
+        await advance(reviewed, operation)
+        return
+      }
+      if (
+        reviewedAnswer.review?.verdict === 'note' ||
+        reviewedAnswer.review?.verdict === 'warning'
+      ) {
+        replacePrepared(null)
+        dispatch({
+          type: 'session_loaded',
+          session: reviewed,
+          phase: 'review_attention',
+        })
+        return
+      }
+      throw new Error('Missing response review')
+    } catch (reason) {
+      if (!operationIsCurrent(operation) || isAbortError(reason)) return
+      replacePrepared(null)
+      setReplacementAnswerId(null)
+      setReviewNotice(
+        'پاسخت ذخیره شد، اما بررسی کوتاه آن فعلاً انجام نشد. جلسه بدون توقف ادامه پیدا کرد.',
+      )
+      await advance(session, operation)
+    }
+  }
+
   async function startPractice() {
     const operation = beginSessionOperation()
     dispatch({ type: 'set_phase', phase: 'creating_session' })
     replacePrepared(null)
     replaceSpeech(null)
+    setReplacementAnswerId(null)
+    setReviewNotice(null)
     try {
       const session = await speakingApi.createSession(
         state.examType,
@@ -437,7 +481,12 @@ export function SpeakingWorkspace() {
 
   async function submitResponse() {
     const session = state.session
-    const prompt = activePrompt(session)
+    const replacementAnswer = replacementAnswerId
+      ? (session?.turns.find((turn) => turn.id === replacementAnswerId) ?? null)
+      : null
+    const prompt = replacementAnswer
+      ? relatedPrompt(session!, replacementAnswer)
+      : activePrompt(session)
     const take = preparedRef.current
     if (!session || !prompt || !take) return
     const operation = beginSessionOperation()
@@ -449,32 +498,41 @@ export function SpeakingWorkspace() {
     }, 6_000)
     dispatch({ type: 'set_phase', phase: 'submitting' })
     try {
-      const committed = await speakingApi.submitResponse(
-        session.id,
-        {
-          audio: take.blob,
-          clientEventId: take.clientEventId,
-          filename: take.filename,
-          promptId: prompt.id,
-          recordingDurationMs: take.durationMs,
-        },
-        operation.signal,
-      )
+      const committed = replacementAnswer
+        ? await speakingApi.replaceResponse(
+            session.id,
+            replacementAnswer.id,
+            {
+              audio: take.blob,
+              clientEventId: take.clientEventId,
+              expectedRevision: replacementAnswer.revision,
+              filename: take.filename,
+              recordingDurationMs: take.durationMs,
+            },
+            operation.signal,
+          )
+        : await speakingApi.submitResponse(
+            session.id,
+            {
+              audio: take.blob,
+              clientEventId: take.clientEventId,
+              filename: take.filename,
+              promptId: prompt.id,
+              recordingDurationMs: take.durationMs,
+            },
+            operation.signal,
+          )
       if (!operationIsCurrent(operation)) return
       setAnswerCommitted(true)
-      if (committed.status === 'completed') {
-        clearSubmissionTimer()
-        replacePrepared(null)
-        dispatch({
-          type: 'session_loaded',
-          session: committed,
-          phase: 'completed',
-        })
-        const closing = closingTurn(committed)
-        if (closing) await loadSpeech(committed, closing, operation)
-      } else {
-        await advance(committed, operation)
-      }
+      const committedAnswer = replacementAnswer
+        ? committed.turns.find((turn) => turn.id === replacementAnswer.id)
+        : [...committed.turns]
+            .reverse()
+            .find(
+              (turn) => turn.role === 'learner' && turn.prompt_id === prompt.id,
+            )
+      if (!committedAnswer) throw new Error('Missing committed answer')
+      await reviewCommittedResponse(committed, committedAnswer, operation)
     } catch (reason) {
       if (!operationIsCurrent(operation) || isAbortError(reason)) return
       clearSubmissionTimer()
@@ -482,7 +540,9 @@ export function SpeakingWorkspace() {
         type: 'fail',
         message: friendlyError(
           reason,
-          'ثبت پاسخ انجام نشد. برداشتت روی دستگاه باقی مانده و آمادهٔ تلاش دوباره است.',
+          replacementAnswer
+            ? 'ثبت پاسخ جایگزین انجام نشد. پاسخ قبلی محفوظ است و ضبط تازه روی دستگاهت مانده است.'
+            : 'ثبت پاسخ انجام نشد. ضبطت روی دستگاه باقی مانده و آمادهٔ تلاش دوباره است.',
         ),
         retryAction: 'submit',
         session,
@@ -495,6 +555,8 @@ export function SpeakingWorkspace() {
     dispatch({ type: 'set_phase', phase: 'loading_examiner' })
     replacePrepared(null)
     replaceSpeech(null)
+    setReplacementAnswerId(null)
+    setReviewNotice(null)
     try {
       const session = await speakingApi.getSession(summary.id, operation.signal)
       if (!operationIsCurrent(operation)) return
@@ -504,7 +566,22 @@ export function SpeakingWorkspace() {
       }
       const prompt = activePrompt(session)
       if (prompt) await loadSpeech(session, prompt, operation)
-      else await advance(session, operation)
+      else {
+        const answer = latestLearnerAnswer(session)
+        if (!answer) {
+          await advance(session, operation)
+        } else if (!answer.review) {
+          await reviewCommittedResponse(session, answer, operation)
+        } else if (answer.review.verdict === 'clear') {
+          await advance(session, operation)
+        } else {
+          dispatch({
+            type: 'session_loaded',
+            session,
+            phase: 'review_attention',
+          })
+        }
+      }
     } catch (reason) {
       if (!operationIsCurrent(operation) || isAbortError(reason)) return
       dispatch({
@@ -539,6 +616,8 @@ export function SpeakingWorkspace() {
     setAbandonOpen(false)
     setExitOpen(false)
     setCompletionSpeechError(null)
+    setReviewNotice(null)
+    setReplacementAnswerId(null)
     dispatch({ type: 'back_to_landing' })
     void loadHistory()
   }
@@ -570,6 +649,7 @@ export function SpeakingWorkspace() {
       clearSubmissionTimer()
       replacePrepared(null)
       replaceSpeech(null)
+      setReplacementAnswerId(null)
       setAbandonOpen(false)
       dispatch({ type: 'show_history', session })
     } catch (reason) {
@@ -595,6 +675,20 @@ export function SpeakingWorkspace() {
         return loadSpeech(state.session, prompt, beginSessionOperation())
       }
     }
+  }
+
+  function replaceFlaggedAnswer(answer: SpeakingTurn) {
+    replacePrepared(null)
+    setReplacementAnswerId(answer.id)
+    dispatch({ type: 'set_phase', phase: 'ready_to_record' })
+  }
+
+  function continueAfterReview() {
+    if (!state.session) return
+    replacePrepared(null)
+    setReplacementAnswerId(null)
+    setReviewNotice(null)
+    void advance(state.session, beginSessionOperation())
   }
 
   const feedbackLoaded = useCallback((feedback: SpeakingFeedback) => {
@@ -684,7 +778,18 @@ export function SpeakingWorkspace() {
     )
   }
 
-  const prompt = activePrompt(state.session)
+  const reviewAnswer = latestLearnerAnswer(state.session)
+  const replacementAnswer = replacementAnswerId
+    ? (state.session.turns.find((turn) => turn.id === replacementAnswerId) ??
+      null)
+    : null
+  const prompt =
+    activePrompt(state.session) ??
+    (replacementAnswer
+      ? relatedPrompt(state.session, replacementAnswer)
+      : reviewAnswer
+        ? relatedPrompt(state.session, reviewAnswer)
+        : null)
   const progress = Math.round(
     (state.session.response_count / state.session.required_response_count) *
       100,
@@ -692,6 +797,7 @@ export function SpeakingWorkspace() {
   const modalOpen = exitOpen || abandonOpen
   const liveAnnouncement = [
     phaseView.announcement,
+    reviewNotice,
     longWait && prepared
       ? answerCommitted
         ? 'پاسخ شما ثبت شده است.'
@@ -702,7 +808,7 @@ export function SpeakingWorkspace() {
     .join(' ')
 
   return (
-    <main className="min-h-svh bg-[var(--athena-workspace)] pb-[env(safe-area-inset-bottom)] text-[var(--athena-ink)]">
+    <main className="min-h-svh bg-[var(--athena-surface-subtle)] pb-[env(safe-area-inset-bottom)] text-[var(--athena-text)]">
       <div
         aria-hidden={modalOpen ? true : undefined}
         inert={modalOpen ? true : undefined}
@@ -711,30 +817,29 @@ export function SpeakingWorkspace() {
           {liveAnnouncement}
         </p>
         <header className="sticky top-0 z-30 border-b border-[var(--athena-border)] bg-[var(--athena-paper)]/95 backdrop-blur">
-          <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
+          <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={(event) => requestExit(event.currentTarget)}
-                aria-label="خروج از تمرین Speaking"
-                className="rounded-lg text-xl font-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
-              >
+              <p className="text-xl font-bold" aria-label="آتنا">
                 آتنا
-              </button>
+              </p>
               <span
                 aria-hidden="true"
                 className="h-7 w-px bg-[var(--athena-border)]"
               />
               <div className="min-w-0">
-                <h1 className="truncate text-sm font-black">
-                  تمرین Speaking {state.session.exam_type.toUpperCase()}
+                <h1 className="truncate text-sm font-bold">
+                  {prompt ? stageLabel(prompt.stage) : 'Speaking'}
                 </h1>
-                <p className="mt-0.5 text-[10px] text-[var(--athena-muted)]">
-                  {state.session.response_count.toLocaleString('fa-IR')} از{' '}
+                <p className="mt-0.5 text-xs text-[var(--athena-muted)]">
+                  پاسخ{' '}
+                  {Math.min(
+                    state.session.response_count + 1,
+                    state.session.required_response_count,
+                  ).toLocaleString('fa-IR')}{' '}
+                  از{' '}
                   {state.session.required_response_count.toLocaleString(
                     'fa-IR',
-                  )}{' '}
-                  پاسخ ثبت شده
+                  )}
                 </p>
               </div>
             </div>
@@ -742,19 +847,21 @@ export function SpeakingWorkspace() {
               <button
                 type="button"
                 onClick={(event) => requestExit(event.currentTarget)}
-                className="min-h-11 rounded-xl border border-[var(--athena-border)] px-3 py-2 text-xs font-black transition hover:bg-[var(--athena-mint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--athena-teal)] sm:px-4"
+                aria-label="خروج و ادامه بعداً"
+                className="min-h-11 rounded-xl border border-[var(--athena-border)] px-3 py-2 text-sm font-semibold transition hover:bg-[var(--athena-mint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--athena-teal)] sm:px-4"
               >
-                خروج
+                <span className="sm:hidden">خروج</span>
+                <span className="hidden sm:inline">خروج و ادامه بعداً</span>
               </button>
               <button
                 ref={abandonTriggerRef}
                 type="button"
-                aria-label="رها کردن جلسه"
+                aria-label="پایان دادن به جلسه"
                 onClick={() => setAbandonOpen(true)}
-                className="min-h-11 rounded-xl px-2 py-2 text-xs font-black text-[#8f302c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9b3f38] sm:px-3"
+                className="min-h-11 rounded-xl px-2 py-2 text-sm font-semibold text-[var(--athena-error)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--athena-error)] sm:px-3"
               >
-                <span className="sm:hidden">رها</span>
-                <span className="hidden sm:inline">رها کردن</span>
+                <span className="sm:hidden">پایان</span>
+                <span className="hidden sm:inline">پایان دادن به جلسه</span>
               </button>
             </div>
           </div>
@@ -773,15 +880,26 @@ export function SpeakingWorkspace() {
           </div>
         </header>
 
-        <div className="mx-auto grid max-w-[1500px] gap-5 px-4 py-5 sm:px-7 lg:grid-cols-[minmax(0,1.28fr)_minmax(320px,0.72fr)] lg:gap-6 lg:py-7">
+        <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:py-7">
           <div className="min-w-0 space-y-5">
             <SpeakingExaminer
+              playbackState={playbackState}
               prompt={prompt}
               session={state.session}
               speechUrl={speechUrl}
               view={phaseView}
+              onPause={pauseExaminerAudio}
               onPlay={() => void playExaminerAudio()}
             />
+
+            {reviewNotice && (
+              <div
+                role="status"
+                className="rounded-xl border border-[var(--athena-warning-border)] bg-[var(--athena-warning-surface)] px-4 py-3 text-base leading-7 text-[var(--athena-ink)]"
+              >
+                {reviewNotice}
+              </div>
+            )}
 
             {state.phase === 'recoverable_error' &&
               state.error &&
@@ -805,47 +923,48 @@ export function SpeakingWorkspace() {
                 </div>
               )}
 
-            <div className="-mx-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:-mx-7 lg:mx-0 lg:pb-0">
-              <SpeakingRecorder
-                answerCommitted={answerCommitted}
-                error={
-                  state.retryAction === 'submit' || state.retryAction === null
-                    ? state.error
-                    : null
-                }
-                longWait={longWait}
-                prepared={prepared}
-                prompt={prompt}
-                view={phaseView}
-                onDiscard={() => {
-                  replacePrepared(null)
-                  dispatch({ type: 'clear_error', phase: 'ready_to_record' })
-                }}
-                onError={(message) =>
-                  dispatch({
-                    type: 'inline_error',
-                    message,
-                    phase: prepared ? 'local_review' : 'ready_to_record',
-                  })
-                }
-                onPhase={(phase: SpeakingPhase) =>
-                  dispatch({ type: 'set_phase', phase })
-                }
-                onPrepared={replacePrepared}
-                onSubmit={() => void submitResponse()}
-              />
+            <div className="-mx-4 sm:mx-0">
+              {state.phase === 'review_attention' && reviewAnswer?.review ? (
+                <SpeakingReviewAttention
+                  answer={reviewAnswer}
+                  onContinue={continueAfterReview}
+                  onReplace={() => replaceFlaggedAnswer(reviewAnswer)}
+                />
+              ) : (
+                <SpeakingRecorder
+                  answerCommitted={answerCommitted}
+                  error={
+                    state.retryAction === 'submit' || state.retryAction === null
+                      ? state.error
+                      : null
+                  }
+                  longWait={longWait}
+                  prepared={prepared}
+                  prompt={prompt}
+                  replacement={Boolean(replacementAnswer)}
+                  view={phaseView}
+                  onDiscard={() => {
+                    replacePrepared(null)
+                    dispatch({ type: 'clear_error', phase: 'ready_to_record' })
+                  }}
+                  onError={(message) =>
+                    dispatch({
+                      type: 'inline_error',
+                      message,
+                      phase: prepared ? 'local_review' : 'ready_to_record',
+                    })
+                  }
+                  onPhase={(phase: SpeakingPhase) =>
+                    dispatch({ type: 'set_phase', phase })
+                  }
+                  onPrepared={replacePrepared}
+                  onSubmit={() => void submitResponse()}
+                />
+              )}
             </div>
 
-            <div className="lg:hidden">
-              <SpeakingTranscript collapsible session={state.session} />
-            </div>
+            <SpeakingTranscript collapsible session={state.session} />
           </div>
-
-          <aside className="hidden min-h-0 lg:block">
-            <div className="sticky top-24">
-              <SpeakingTranscript autoScroll session={state.session} />
-            </div>
-          </aside>
         </div>
       </div>
 
