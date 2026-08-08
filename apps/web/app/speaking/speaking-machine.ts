@@ -16,6 +16,8 @@ export type SpeakingPhase =
   | 'stopping_recording'
   | 'local_review'
   | 'submitting'
+  | 'reviewing_response'
+  | 'review_attention'
   | 'generating_next'
   | 'recoverable_error'
   | 'completed'
@@ -133,6 +135,23 @@ export function deriveSpeakingView(phase: SpeakingPhase): SpeakingPhaseView {
         primaryStatus: SUBMITTING_RESPONSE,
         recorderMode: 'submitting',
         showPreparedTake: true,
+      }
+    case 'reviewing_response':
+      return {
+        ...defaults,
+        announcement: 'پاسخ ذخیره شد؛ بررسی کوتاه در حال انجام است…',
+        examinerMode: 'loading',
+        examinerStatus: 'پاسخ ذخیره شد؛ بررسی کوتاه در حال انجام است…',
+        primaryStatus: 'پاسخ ذخیره شد؛ بررسی کوتاه در حال انجام است…',
+        recorderMode: 'waiting_next',
+        showPreparedTake: true,
+      }
+    case 'review_attention':
+      return {
+        ...defaults,
+        announcement: 'پیش از سؤال بعدی، یک نکته دربارهٔ پاسخ نمایش داده شد.',
+        examinerStatus: 'نیاز به توجه',
+        recorderMode: 'idle',
       }
     case 'generating_next':
       return {

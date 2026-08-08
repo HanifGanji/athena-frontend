@@ -53,6 +53,8 @@ function turn(
     item_index: null,
     prompt_id: null,
     recording_duration_ms: null,
+    review: null,
+    revision: 1,
     sequence: 1,
     stage: '',
     suggested_duration_ms: null,
@@ -111,6 +113,48 @@ const answer = turn({
   transcript: 'Please bring your notebook today.',
 })
 
+const reviewedAnswer = turn({
+  ...answer,
+  review: {
+    issue_code: null,
+    message: '',
+    replacement_allowed: false,
+    reviewed_at: now,
+    verdict: 'clear',
+  },
+})
+
+const warnedAnswer = turn({
+  ...answer,
+  review: {
+    issue_code: 'off_topic',
+    message: 'این پاسخ به پرسش مرتبط نیست؛ می‌توانی دوباره ضبط کنی.',
+    replacement_allowed: true,
+    reviewed_at: now,
+    verdict: 'warning',
+  },
+})
+
+const replacementAnswer = turn({
+  ...answer,
+  id: answer.id,
+  recording_duration_ms: 6_000,
+  review: null,
+  revision: 2,
+  transcript: 'A replacement learner response.',
+})
+
+const secondWarnedAnswer = turn({
+  ...replacementAnswer,
+  review: {
+    issue_code: 'off_topic',
+    message: 'پاسخ جایگزین هم به پرسش مرتبط نیست.',
+    replacement_allowed: false,
+    reviewed_at: now,
+    verdict: 'warning',
+  },
+})
+
 const closing = turn({
   id: '00000000-0000-4000-8000-000000000005',
   kind: 'closing',
@@ -163,13 +207,34 @@ const committedSession = session({
   },
   turns: [greeting, visibleRepeatPrompt, answer],
 })
+const reviewedSession = session({
+  ...committedSession,
+  turns: [greeting, visibleRepeatPrompt, reviewedAnswer],
+})
+const warnedSession = session({
+  ...committedSession,
+  turns: [greeting, visibleRepeatPrompt, warnedAnswer],
+})
+const replacementSession = session({
+  ...committedSession,
+  timing_summary: {
+    actual_duration_ms: 6_000,
+    difference_ms: -2_000,
+    suggested_duration_ms: 8_000,
+  },
+  turns: [greeting, visibleRepeatPrompt, replacementAnswer],
+})
+const secondWarnedSession = session({
+  ...replacementSession,
+  turns: [greeting, visibleRepeatPrompt, secondWarnedAnswer],
+})
 const nextPromptSession = session({
   current_item_index: 1,
   current_prompt_id: secondRepeatPrompt.id,
   current_stage: 'toefl_repeat',
   response_count: 1,
   timing_summary: committedSession.timing_summary,
-  turns: [greeting, visibleRepeatPrompt, answer, secondRepeatPrompt],
+  turns: [greeting, visibleRepeatPrompt, reviewedAnswer, secondRepeatPrompt],
 })
 
 type ErrorReply = { payload?: Record<string, unknown>; status: number }
@@ -182,6 +247,8 @@ type Scenario = {
   list?: SpeakingSessionSummary[]
   listHandler?: () => Promise<Response>
   responses?: (Promise<Response> | Reply)[]
+  replacements?: (Promise<Response> | Reply)[]
+  reviews?: (Promise<Response> | Reply)[]
   speeches?: (ErrorReply | Blob | Promise<Response>)[]
   feedbacks?: (ErrorReply | Promise<Response> | SpeakingFeedback)[]
 }
@@ -218,6 +285,8 @@ function deferred<T>() {
 function installScenario(scenario: Scenario = {}) {
   const advances = [...(scenario.advances ?? [nextPromptSession])]
   const responses = [...(scenario.responses ?? [committedSession])]
+  const replacements = [...(scenario.replacements ?? [])]
+  const reviews = [...(scenario.reviews ?? [reviewedSession])]
   const speeches = [
     ...(scenario.speeches ?? [new Blob(['mp3'], { type: 'audio/mpeg' })]),
   ]
@@ -243,6 +312,23 @@ function installScenario(scenario: Scenario = {}) {
     }
     if (url.endsWith('/responses/')) {
       const reply = responses.shift() ?? committedSession
+      if (reply instanceof Promise) return reply
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply)
+    }
+    if (url.endsWith('/review/')) {
+      const reply = reviews.shift() ?? reviewedSession
+      if (reply instanceof Promise) return reply
+      return isErrorReply(reply)
+        ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
+        : jsonResponse(reply)
+    }
+    if (url.endsWith('/replacement/')) {
+      const reply = replacements.shift()
+      if (!reply) {
+        return jsonResponse({ detail: 'Unexpected replacement request' }, 500)
+      }
       if (reply instanceof Promise) return reply
       return isErrorReply(reply)
         ? jsonResponse(reply.payload ?? { detail: 'failed' }, reply.status)
@@ -399,6 +485,36 @@ describe('SpeakingPage', () => {
       }),
     )
     expect(await screen.findByText('هنوز جلسه‌ای نداری.')).toBeVisible()
+    expect(screen.getByText('۱۶ پاسخ · حدود ۹ دقیقه صحبت')).toBeVisible()
+    expect(screen.getByText('۱۱ پاسخ · حدود ۴ دقیقه صحبت')).toBeVisible()
+  })
+
+  it('shows five recent sessions and places older history behind native disclosure', async () => {
+    const sessions = Array.from({ length: 7 }, (_, index) =>
+      session({
+        completed_at: now,
+        id: `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        status: 'completed',
+      }),
+    )
+    installScenario({ list: sessions })
+    render(<SpeakingPage />)
+
+    expect(
+      await screen.findAllByRole('button', { name: 'دیدن متن جلسه' }),
+    ).toHaveLength(5)
+    const disclosure = screen.getByText('جلسه‌های قدیمی‌تر').closest('summary')!
+    expect(disclosure).toBeVisible()
+    fireEvent.click(disclosure)
+    expect(screen.getByText('۲ جلسه')).toBeVisible()
+  })
+
+  it('labels an unfinished zero-answer session as not started', async () => {
+    installScenario({ list: [promptedSession] })
+    render(<SpeakingPage />)
+
+    expect(await screen.findByText('شروع‌نشده')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ادامهٔ تمرین' })).toBeVisible()
   })
 
   it('shows an inline focused history error and retries without blocking start', async () => {
@@ -498,7 +614,7 @@ describe('SpeakingPage', () => {
     await reachPrompt()
 
     const play = await screen.findByRole('button', {
-      name: 'پخش صدای ممتحن',
+      name: 'پخش سؤال',
     })
     expect(play).toBeVisible()
     expect(
@@ -550,7 +666,7 @@ describe('SpeakingPage', () => {
         screen.getAllByText('Please bring your notebook today.').length,
       ).toBeGreaterThanOrEqual(2)
     })
-    expect(screen.getByText(/۱ از ۱۱ پاسخ ثبت شده/)).toBeVisible()
+    expect(screen.getByText(/پاسخ ۲ از ۱۱/)).toBeVisible()
     expect(screen.getByText('در حال پخش')).toBeVisible()
 
     const uploadCall = fetchMock.mock.calls.find(([url]) =>
@@ -560,6 +676,192 @@ describe('SpeakingPage', () => {
     expect(formData.get('prompt_id')).toBe(repeatPrompt.id)
     expect(formData.get('recording_duration_ms')).toBe('4250')
     expect(formData.get('client_event_id')).toMatch(/^[0-9a-f-]{36}$/i)
+  })
+
+  it('pauses on a flagged review and lets the learner continue unchanged', async () => {
+    const fetchMock = installScenario({
+      advances: [nextPromptSession],
+      responses: [committedSession],
+      reviews: [warnedSession],
+    })
+    render(<SpeakingPage />)
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['voice'], 'flagged.webm', { type: 'audio/webm' })],
+      },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
+
+    expect(
+      await screen.findByText(
+        'این پاسخ به پرسش مرتبط نیست؛ می‌توانی دوباره ضبط کنی.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'ضبط پاسخ جایگزین' }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'ادامه با همین پاسخ' }),
+    ).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
+    ).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'ادامه با همین پاسخ' }))
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
+    ).toHaveLength(1)
+  })
+
+  it('replaces a flagged response once, reviews revision two, then allows continuation only', async () => {
+    const fetchMock = installScenario({
+      advances: [nextPromptSession],
+      replacements: [replacementSession],
+      responses: [committedSession],
+      reviews: [warnedSession, secondWarnedSession],
+    })
+    render(<SpeakingPage />)
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['first'], 'first.webm', { type: 'audio/webm' })],
+      },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'ضبط پاسخ جایگزین' }),
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'ضبط پاسخ جایگزین' }),
+    ).toBeVisible()
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['second'], 'second.webm', { type: 'audio/webm' })],
+      },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'ثبت پاسخ جایگزین' }),
+    )
+
+    expect(
+      await screen.findByText('پاسخ جایگزین هم به پرسش مرتبط نیست.'),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'ضبط پاسخ جایگزین' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'ادامه با همین پاسخ' }),
+    ).toBeVisible()
+    const replacementCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/replacement/'),
+    )
+    const replacementForm = replacementCall?.[1]?.body as FormData
+    expect(replacementForm.get('expected_revision')).toBe('1')
+    expect(replacementForm.get('recording_duration_ms')).toBe('4250')
+  })
+
+  it('keeps a failed replacement take locally and leaves the committed answer in the transcript', async () => {
+    installScenario({
+      replacements: [
+        {
+          payload: { code: 'provider_unavailable', detail: 'failed' },
+          status: 503,
+        },
+      ],
+      responses: [committedSession],
+      reviews: [warnedSession],
+    })
+    render(<SpeakingPage />)
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['first'], 'first.webm', { type: 'audio/webm' })],
+      },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'ضبط پاسخ جایگزین' }),
+    )
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [
+          new File(['second'], 'replacement.webm', { type: 'audio/webm' }),
+        ],
+      },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'ثبت پاسخ جایگزین' }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'پاسخ قبلی محفوظ است',
+    )
+    expect(screen.getByText('replacement.webm')).toBeVisible()
+    expect(
+      screen.getAllByText('Please bring your notebook today.').length,
+    ).toBeGreaterThanOrEqual(2)
+  })
+
+  it('continues automatically with a saved answer when its review is unavailable', async () => {
+    const fetchMock = installScenario({
+      advances: [nextPromptSession],
+      responses: [committedSession],
+      reviews: [
+        {
+          payload: { code: 'provider_unavailable', detail: 'failed' },
+          status: 503,
+        },
+      ],
+    })
+    render(<SpeakingPage />)
+    await reachPrompt()
+    act(() => audioInstances.at(-1)?.end())
+    fireEvent.change(screen.getByLabelText('انتخاب فایل صوتی'), {
+      target: {
+        files: [new File(['voice'], 'saved.webm', { type: 'audio/webm' })],
+      },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'ثبت این پاسخ' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'بررسی کوتاه آن فعلاً انجام نشد',
+    )
+    expect(await screen.findByText('در حال پخش')).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
+    ).toHaveLength(1)
+  })
+
+  it('supports pause, continue, and replay while recording remains locked', async () => {
+    installScenario()
+    render(<SpeakingPage />)
+    await reachPrompt()
+
+    const pause = await screen.findByRole('button', { name: 'توقف موقت' })
+    expect(
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(pause)
+    const resume = await screen.findByRole('button', { name: 'ادامهٔ پخش' })
+    expect(
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(resume)
+    act(() => audioInstances.at(-1)?.end())
+    expect(
+      await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'پخش دوباره' }))
+    expect(
+      screen.queryByRole('button', { name: 'شروع ضبط پاسخ' }),
+    ).not.toBeInTheDocument()
   })
 
   it('records without auto-stop, supports re-recording, and releases media resources', async () => {
@@ -640,7 +942,9 @@ describe('SpeakingPage', () => {
       await screen.findByRole('button', { name: 'شروع ضبط پاسخ' }),
     )
     await screen.findByRole('button', { name: 'توقف ضبط' })
-    const exit = screen.getByRole('button', { name: 'خروج' })
+    const exit = screen.getByRole('button', {
+      name: 'خروج و ادامه بعداً',
+    })
     fireEvent.click(exit)
     expect(screen.getByRole('dialog', { name: 'خروج بدون ثبت؟' })).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -712,7 +1016,7 @@ describe('SpeakingPage', () => {
     expect(await screen.findByText('در حال پخش')).toBeVisible()
   })
 
-  it('keeps a committed take visible during slow next speech and shows commit reassurance', async () => {
+  it('releases a committed take while the next speech is loading', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const nextSpeech = deferred<Response>()
     installScenario({
@@ -734,13 +1038,12 @@ describe('SpeakingPage', () => {
     await screen.findByText('committed.webm')
     fireEvent.click(screen.getByRole('button', { name: 'ثبت این پاسخ' }))
 
-    expect(screen.getByText('committed.webm')).toBeVisible()
+    await waitFor(() =>
+      expect(screen.queryByText('committed.webm')).not.toBeInTheDocument(),
+    )
     expect(
       (await screen.findAllByText('صدا در حال آماده‌شدن است…')).length,
     ).toBeGreaterThan(0)
-    await act(() => vi.advanceTimersByTimeAsync(6_000))
-    expect(screen.getByText('پاسخ شما ثبت شده است.')).toBeVisible()
-
     nextSpeech.resolve(
       new Response(new Blob(['next mp3'], { type: 'audio/mpeg' }), {
         status: 200,
@@ -863,6 +1166,28 @@ describe('SpeakingPage', () => {
     ).toBe(false)
   })
 
+  it('restores an unresolved review warning on resume before advancing', async () => {
+    const fetchMock = installScenario({
+      detail: warnedSession,
+      list: [warnedSession],
+    })
+    render(<SpeakingPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'ادامهٔ تمرین' }))
+
+    expect(
+      await screen.findByText(
+        'این پاسخ به پرسش مرتبط نیست؛ می‌توانی دوباره ضبط کنی.',
+      ),
+    ).toBeVisible()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/review/')),
+    ).toHaveLength(0)
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
+    ).toHaveLength(0)
+  })
+
   it('renders completion metrics, transcript, and the explicit no-score message', async () => {
     const completed = session({
       completed_at: now,
@@ -943,11 +1268,11 @@ describe('SpeakingPage', () => {
     ).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
 
-    const strengthsHeading = await screen.findByRole('heading', {
-      name: 'نقطه‌های قوت',
+    const goalHeading = await screen.findByRole('heading', {
+      name: 'پاسخ را یک گام گسترش بده',
     })
-    expect(strengthsHeading).toBeVisible()
-    expect(strengthsHeading).toHaveFocus()
+    expect(goalHeading).toBeVisible()
+    expect(goalHeading).toHaveFocus()
     expect(await screen.findByText('بازخورد آماده شد.')).toBeInTheDocument()
     expect(screen.getByText('تمرکز خوب روی سؤال')).toBeVisible()
     const excerpt = screen.getByText('I study library after class.')
@@ -1038,6 +1363,19 @@ describe('SpeakingPage', () => {
       required_response_count: 1,
       turns: [greeting, repeatPrompt],
     })
+    const finalCommitted = session({
+      current_item_index: 0,
+      current_prompt_id: null,
+      current_stage: 'toefl_repeat',
+      required_response_count: 1,
+      response_count: 1,
+      timing_summary: committedSession.timing_summary,
+      turns: [greeting, visibleRepeatPrompt, answer],
+    })
+    const finalReviewed = session({
+      ...finalCommitted,
+      turns: [greeting, visibleRepeatPrompt, reviewedAnswer],
+    })
     const completed = session({
       completed_at: now,
       current_item_index: 1,
@@ -1051,8 +1389,9 @@ describe('SpeakingPage', () => {
     })
     const fetchMock = installScenario({
       created: onePromptSession,
-      advances: [],
-      responses: [completed],
+      advances: [completed],
+      responses: [finalCommitted],
+      reviews: [finalReviewed],
       speeches: [
         new Blob(['prompt mp3'], { type: 'audio/mpeg' }),
         new Blob(['closing mp3'], { type: 'audio/mpeg' }),
@@ -1075,7 +1414,7 @@ describe('SpeakingPage', () => {
     expect(screen.getByText(/هیچ نمره، تخمین باند یا تشخیص سطحی/)).toBeVisible()
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/advance/')),
-    ).toHaveLength(0)
+    ).toHaveLength(1)
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/speech/')),
     ).toHaveLength(2)
@@ -1087,7 +1426,9 @@ describe('SpeakingPage', () => {
     render(<SpeakingPage />)
     await reachPrompt()
 
-    const abandon = screen.getByRole('button', { name: 'رها کردن جلسه' })
+    const abandon = screen.getByRole('button', {
+      name: 'پایان دادن به جلسه',
+    })
     fireEvent.click(abandon)
     expect(
       screen.getByRole('dialog', { name: 'این جلسه رها شود؟' }),
@@ -1108,7 +1449,7 @@ describe('SpeakingPage', () => {
     ).toBe(true)
   })
 
-  it('confirms خروج بدون ثبت for an unsent take, including the Athena header path', async () => {
+  it('confirms خروج بدون ثبت for an unsent take', async () => {
     const fetchMock = installScenario()
     render(<SpeakingPage />)
     await reachPrompt()
@@ -1121,7 +1462,7 @@ describe('SpeakingPage', () => {
     await screen.findByText('unsent.webm')
 
     const athena = screen.getByRole('button', {
-      name: 'خروج از تمرین Speaking',
+      name: 'خروج و ادامه بعداً',
     })
     const background = athena.closest('main')?.firstElementChild
     fireEvent.click(athena)
@@ -1180,7 +1521,7 @@ describe('SpeakingPage', () => {
       String(url).endsWith('/speech/'),
     )[1]?.[1]?.signal
 
-    fireEvent.click(screen.getByRole('button', { name: 'خروج' }))
+    fireEvent.click(screen.getByRole('button', { name: 'خروج و ادامه بعداً' }))
     expect(speechSignal?.aborted).toBe(true)
     expect(
       await screen.findByRole('heading', {

@@ -11,6 +11,7 @@ describe('speaking phase view', () => {
   it.each<[SpeakingPhase, string]>([
     ['creating_session', 'در حال آماده‌سازی تمرین…'],
     ['submitting', 'در حال ثبت پاسخ…'],
+    ['reviewing_response', 'پاسخ ذخیره شد؛ بررسی کوتاه در حال انجام است…'],
     ['generating_next', 'پاسخ ثبت شد؛ سؤال بعدی آماده می‌شود…'],
     ['loading_examiner', 'صدا در حال آماده‌شدن است…'],
     ['loading_feedback', 'در حال آماده‌سازی بازخورد…'],
@@ -33,6 +34,9 @@ describe('speaking phase view', () => {
     expect(deriveSpeakingView('generating_next')).toMatchObject({
       recorderMode: 'waiting_next',
       showPreparedTake: true,
+    })
+    expect(deriveSpeakingView('review_attention')).toMatchObject({
+      recorderMode: 'idle',
     })
   })
 })

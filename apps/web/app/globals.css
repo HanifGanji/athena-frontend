@@ -1,6 +1,17 @@
 @import 'tailwindcss';
 
 :root {
+  --athena-surface: #fffdf8;
+  --athena-surface-subtle: #edf1ed;
+  --athena-text: #18302d;
+  --athena-text-muted: #52625f;
+  --athena-accent: #155e57;
+  --athena-accent-surface: #dcebe5;
+  --athena-warning-surface: #fff8df;
+  --athena-warning-border: #d9bd63;
+  --athena-error-surface: #fff0ed;
+  --athena-error-border: #d79b91;
+  --athena-error: #8f302c;
   --athena-canvas: #f4f1e8;
   --athena-workspace: #edf1ed;
   --athena-paper: #fffdf8;

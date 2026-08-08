@@ -43,11 +43,24 @@ describe('speakingApi', () => {
       },
       signal,
     )
+    await speakingApi.reviewResponse('session-id', 'answer-id', signal)
+    await speakingApi.replaceResponse(
+      'session-id',
+      'answer-id',
+      {
+        audio: new Blob(['replacement'], { type: 'audio/webm' }),
+        clientEventId: 'replacement-event-id',
+        expectedRevision: 1,
+        filename: 'replacement.webm',
+        recordingDurationMs: 1_500,
+      },
+      signal,
+    )
     await speakingApi.getSpeech('session-id', 'turn-id', signal)
     await speakingApi.abandon('session-id', signal)
     await speakingApi.getOrCreateFeedback('session-id', signal)
 
-    expect(fetchMock).toHaveBeenCalledTimes(8)
+    expect(fetchMock).toHaveBeenCalledTimes(10)
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.signal).toBe(signal)
     }

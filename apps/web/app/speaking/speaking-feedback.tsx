@@ -105,12 +105,17 @@ export function SpeakingFeedbackPanel({
           <p className="mt-2 text-sm leading-7 text-[var(--athena-muted)]">
             راهنمایی عملی بر پایهٔ همین پاسخ‌ها؛ بدون نمره یا تخمین سطح.
           </p>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--athena-muted)]">
+            با درخواست تو، متن پاسخ‌ها برای ساخت بازخورد به سرویس هوش مصنوعی
+            فرستاده می‌شود. فایل صوتی ذخیره نمی‌شود و بازخورد ممکن است خطا داشته
+            باشد.
+          </p>
         </div>
         {!cachedFeedback && !loading && !error && (
           <button
             type="button"
             onClick={() => void loadFeedback()}
-            className="min-h-12 rounded-2xl bg-[var(--athena-teal)] px-5 py-3 text-sm font-black text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
+            className="min-h-12 rounded-xl bg-[var(--athena-teal)] px-5 py-3 text-base font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)]"
           >
             دریافت بازخورد
           </button>
@@ -148,48 +153,39 @@ export function SpeakingFeedbackPanel({
 
       {cachedFeedback && (
         <div className="mt-7 space-y-7">
-          <section aria-labelledby="feedback-strengths-title">
+          <section
+            aria-labelledby="feedback-goal-title"
+            className="rounded-xl bg-[var(--athena-ink)] p-5 text-white"
+          >
+            <p className="text-sm font-semibold text-[var(--athena-coral)]">
+              هدف تمرین بعدی
+            </p>
             <h3
               ref={resultHeadingRef}
-              id="feedback-strengths-title"
+              id="feedback-goal-title"
               tabIndex={-1}
-              className="flex items-center gap-2 text-lg font-black outline-none focus-visible:ring-2 focus-visible:ring-[var(--athena-teal)] focus-visible:ring-offset-3"
+              className="mt-2 text-xl font-bold outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-3 focus-visible:ring-offset-[var(--athena-ink)]"
             >
-              <span className="grid size-8 place-items-center rounded-xl bg-[var(--athena-mint)] text-[var(--athena-teal)]">
-                <CheckIcon className="size-5" />
-              </span>
-              نقطه‌های قوت
+              {cachedFeedback.next_goal.title}
             </h3>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {cachedFeedback.strengths.map((strength) => (
-                <article
-                  key={`${strength.title}-${strength.evidence}`}
-                  className="rounded-2xl bg-[var(--athena-mint)] p-4"
-                >
-                  <h4 className="font-black text-[var(--athena-teal)]">
-                    {strength.title}
-                  </h4>
-                  <p className="mt-2 text-sm leading-7 text-[var(--athena-muted)]">
-                    {strength.evidence}
-                  </p>
-                </article>
-              ))}
-            </div>
+            <p className="mt-3 text-base leading-8 text-[#dce7e4]">
+              {cachedFeedback.next_goal.practice}
+            </p>
           </section>
 
           <section aria-labelledby="feedback-improvements-title">
-            <h3 id="feedback-improvements-title" className="text-lg font-black">
+            <h3 id="feedback-improvements-title" className="text-lg font-bold">
               پیشنهادهای بهبود
             </h3>
             <div className="mt-4 space-y-3">
               {cachedFeedback.improvements.map((improvement) => (
                 <article
                   key={`${improvement.learner_excerpt}-${improvement.improved_version}`}
-                  className="rounded-2xl border border-[var(--athena-border)] p-4 sm:p-5"
+                  className="rounded-xl border border-[var(--athena-border)] p-4 sm:p-5"
                 >
                   <dl className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <dt className="text-xs font-black text-[var(--athena-muted)]">
+                      <dt className="text-sm font-semibold text-[var(--athena-muted)]">
                         از پاسخ تو
                       </dt>
                       <dd
@@ -201,7 +197,7 @@ export function SpeakingFeedbackPanel({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black text-[var(--athena-muted)]">
+                      <dt className="text-sm font-semibold text-[var(--athena-muted)]">
                         نسخهٔ پیشنهادی
                       </dt>
                       <dd
@@ -221,19 +217,31 @@ export function SpeakingFeedbackPanel({
             </div>
           </section>
 
-          <section
-            aria-labelledby="feedback-goal-title"
-            className="rounded-2xl bg-[var(--athena-ink)] p-5 text-white"
-          >
-            <p className="text-xs font-bold text-[var(--athena-coral)]">
-              هدف تمرین بعدی
-            </p>
-            <h3 id="feedback-goal-title" className="mt-2 text-xl font-black">
-              {cachedFeedback.next_goal.title}
+          <section aria-labelledby="feedback-strengths-title">
+            <h3
+              id="feedback-strengths-title"
+              className="flex items-center gap-2 text-lg font-bold"
+            >
+              <span className="grid size-8 place-items-center rounded-lg bg-[var(--athena-mint)] text-[var(--athena-teal)]">
+                <CheckIcon className="size-5" />
+              </span>
+              نقطه‌های قوت
             </h3>
-            <p className="mt-3 text-sm leading-7 text-[#dce7e4]">
-              {cachedFeedback.next_goal.practice}
-            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {cachedFeedback.strengths.map((strength) => (
+                <article
+                  key={`${strength.title}-${strength.evidence}`}
+                  className="rounded-xl bg-[var(--athena-mint)] p-4"
+                >
+                  <h4 className="font-semibold text-[var(--athena-teal)]">
+                    {strength.title}
+                  </h4>
+                  <p className="mt-2 text-sm leading-7 text-[var(--athena-muted)]">
+                    {strength.evidence}
+                  </p>
+                </article>
+              ))}
+            </div>
           </section>
         </div>
       )}

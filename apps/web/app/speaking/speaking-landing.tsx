@@ -146,15 +146,6 @@ export function SpeakingLanding({
           </div>
         )}
 
-        {staffPreview && (
-          <StaffTestPreviewCard
-            moduleLabel="Speaking"
-            error={staffPreview.error}
-            loading={staffPreview.loading}
-            onOpen={staffPreview.onOpen}
-          />
-        )}
-
         <section
           aria-labelledby="exam-choice-title"
           className="rounded-[1.75rem] border border-[var(--athena-border)] bg-[var(--athena-paper)] p-5 shadow-[0_18px_55px_rgba(24,48,45,0.07)] sm:p-7"
@@ -173,13 +164,13 @@ export function SpeakingLanding({
                 {
                   type: 'ielts' as const,
                   title: 'IELTS Speaking',
-                  count: '۱۶ پاسخ',
+                  count: '۱۶ پاسخ · حدود ۹ دقیقه صحبت',
                   detail: 'Part 1 · Part 2 · Part 3',
                 },
                 {
                   type: 'toefl' as const,
                   title: 'TOEFL Speaking · Current',
-                  count: '۱۱ پاسخ',
+                  count: '۱۱ پاسخ · حدود ۴ دقیقه صحبت',
                   detail: 'Listen & Repeat · Interview',
                 },
               ] as const
@@ -211,7 +202,7 @@ export function SpeakingLanding({
                         {card.detail}
                       </span>
                     </span>
-                    <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-[var(--athena-teal)]">
+                    <span className="max-w-40 rounded-lg bg-white px-3 py-1.5 text-xs leading-5 font-semibold text-[var(--athena-teal)]">
                       {card.count}
                     </span>
                   </span>
@@ -223,7 +214,11 @@ export function SpeakingLanding({
             type="button"
             onClick={onStart}
             disabled={starting}
-            className="mt-4 flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--athena-ink)] px-6 py-3 text-sm font-black text-white transition hover:bg-[var(--athena-teal)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] disabled:cursor-wait disabled:opacity-60"
+            className={`mt-4 flex min-h-13 w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-base font-bold transition focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--athena-teal)] disabled:cursor-wait disabled:opacity-60 ${
+              resumable
+                ? 'border border-[var(--athena-border-strong)] bg-white text-[var(--athena-ink)] hover:bg-[var(--athena-mint)]'
+                : 'bg-[var(--athena-ink)] text-white hover:bg-[var(--athena-teal)]'
+            }`}
           >
             {starting ? <Spinner /> : <HeadphonesIcon className="size-5" />}
             {starting
@@ -240,6 +235,15 @@ export function SpeakingLanding({
           onResume={onResume}
           onInspect={onInspect}
         />
+
+        {staffPreview && (
+          <StaffTestPreviewCard
+            moduleLabel="Speaking"
+            error={staffPreview.error}
+            loading={staffPreview.loading}
+            onOpen={staffPreview.onOpen}
+          />
+        )}
       </div>
     </main>
   )

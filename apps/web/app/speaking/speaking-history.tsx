@@ -16,9 +16,10 @@ type SpeakingHistoryProps = {
   status: HistoryStatus
 }
 
-function statusLabel(status: SpeakingSessionSummary['status']) {
-  if (status === 'completed') return 'تکمیل‌شده'
-  if (status === 'abandoned') return 'رهاشده'
+function statusLabel(session: SpeakingSessionSummary) {
+  if (session.status === 'completed') return 'تکمیل‌شده'
+  if (session.status === 'abandoned') return 'رهاشده'
+  if (session.response_count === 0) return 'شروع‌نشده'
   return 'در حال انجام'
 }
 
@@ -104,7 +105,7 @@ export function SpeakingHistory({
 
       {status === 'ready' && sessions.length > 0 && (
         <div className="grid gap-3">
-          {sessions.map((session) => {
+          {sessions.slice(0, 5).map((session) => {
             const progress = Math.round(
               (session.response_count / session.required_response_count) * 100,
             )
@@ -123,7 +124,7 @@ export function SpeakingHistory({
                       {examLabel(session.exam_type)}
                     </span>
                     <span className="rounded-full bg-[var(--athena-sand)] px-3 py-1 text-xs font-bold text-[var(--athena-muted)]">
-                      {statusLabel(session.status)}
+                      {statusLabel(session)}
                     </span>
                     <span className="text-xs text-[var(--athena-muted)]">
                       {formatDate(session.updated_at)}
@@ -189,6 +190,37 @@ export function SpeakingHistory({
               </article>
             )
           })}
+          {sessions.length > 5 && (
+            <details className="rounded-xl border border-[var(--athena-border)] bg-[var(--athena-surface)]">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 py-3 text-base font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--athena-accent)]">
+                <span>جلسه‌های قدیمی‌تر</span>
+                <span className="text-sm text-[var(--athena-muted)]">
+                  {(sessions.length - 5).toLocaleString('fa-IR')} جلسه
+                </span>
+              </summary>
+              <div className="divide-y divide-[var(--athena-border)] border-t border-[var(--athena-border)]">
+                {sessions.slice(5).map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() =>
+                      session.status === 'in_progress'
+                        ? onResume(session)
+                        : onInspect(session)
+                    }
+                    className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-right text-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--athena-accent)]"
+                  >
+                    <span className="font-semibold">
+                      {examLabel(session.exam_type)} · {statusLabel(session)}
+                    </span>
+                    <span className="text-[var(--athena-muted)]">
+                      {formatDate(session.updated_at)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
     </section>
