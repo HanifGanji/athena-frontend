@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOptionalAuth } from '@/app/auth-provider'
 import {
   AlertIcon,
   ArrowLeftIcon,
@@ -13,6 +14,7 @@ import {
 } from '@/app/listening/listening-icons'
 import { ListeningAudio } from '@/app/listening/listening-media'
 import { ListeningQuestionGroup } from '@/app/listening/listening-question-group'
+import { StaffTestPreviewCard } from '@/app/staff-test-preview-card'
 import type {
   ListeningAnswerPayload,
   ListeningAttempt,
@@ -46,6 +48,7 @@ function payloadHasAnswer(payload: ListeningAnswerPayload) {
 }
 
 export function ListeningWorkspace() {
+  const auth = useOptionalAuth()
   const [tests, setTests] = useState<ListeningTestSummary[]>([])
   const [test, setTest] = useState<ListeningTest | null>(null)
   const [attempt, setAttempt] = useState<ListeningAttempt | null>(null)
@@ -64,6 +67,8 @@ export function ListeningWorkspace() {
   const [pendingSaves, setPendingSaves] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const answersRef = useRef<Record<string, string>>({})
@@ -275,6 +280,46 @@ export function ListeningWorkspace() {
     }
   }
 
+  async function openStaffPreview() {
+    setPreviewLoading(true)
+    setPreviewError(null)
+    try {
+      const preview = await listeningApi.getStaffPreview()
+      const testPayload = await listeningApi.getTest(preview.test_slug)
+      const previewAnswers: Record<string, string> = {}
+      const previewSelections: Record<string, string[]> = {}
+      for (const response of preview.attempt.responses) {
+        if ('answers' in response.answer_payload) {
+          Object.assign(previewAnswers, response.answer_payload.answers)
+        } else {
+          previewSelections[response.group_id] =
+            response.answer_payload.selected_options
+        }
+      }
+      setTest(testPayload)
+      setAttempt(preview.attempt)
+      setEvaluation(preview.evaluation)
+      answersRef.current = previewAnswers
+      multiRef.current = previewSelections
+      setAnswers(previewAnswers)
+      setMultiSelections(previewSelections)
+      setActivePartIndex(0)
+      setActiveQuestionNumber(null)
+      setElapsedSeconds(preview.attempt.active_duration_seconds)
+      saveQueues.current.clear()
+      saveFailures.current.clear()
+      setSaveError(null)
+    } catch (reason) {
+      setPreviewError(
+        reason instanceof Error
+          ? reason.message
+          : 'پیش‌نمایش کارکنان آماده نشد.',
+      )
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   function reset() {
     setTest(null)
     setAttempt(null)
@@ -306,6 +351,15 @@ export function ListeningWorkspace() {
         error={error}
         startingSlug={startingSlug}
         onStart={start}
+        staffPreview={
+          auth?.user?.is_staff
+            ? {
+                error: previewError,
+                loading: previewLoading,
+                onOpen: () => void openStaffPreview(),
+              }
+            : null
+        }
       />
     )
   }
@@ -669,11 +723,17 @@ function ListeningLanding({
   error,
   startingSlug,
   onStart,
+  staffPreview,
 }: {
   tests: ListeningTestSummary[]
   error: string | null
   startingSlug: string | null
   onStart: (summary: ListeningTestSummary) => void
+  staffPreview: {
+    error: string | null
+    loading: boolean
+    onOpen: () => void
+  } | null
 }) {
   return (
     <main className="min-h-svh overflow-hidden bg-[#f4f1e8] text-[#18302d]">
@@ -735,6 +795,15 @@ function ListeningLanding({
           >
             {error}
           </div>
+        )}
+
+        {staffPreview && (
+          <StaffTestPreviewCard
+            moduleLabel="Listening"
+            error={staffPreview.error}
+            loading={staffPreview.loading}
+            onOpen={staffPreview.onOpen}
+          />
         )}
 
         <section aria-labelledby="listening-tests" className="pb-16">

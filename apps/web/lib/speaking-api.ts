@@ -153,4 +153,10 @@ export const speakingApi = {
       body: jsonBody({}),
       signal,
     }),
+
+  getStaffPreview: () =>
+    apiRequest<{ session: SpeakingSession }>('/staff/test-previews/speaking/', {
+      method: 'POST',
+      body: jsonBody({}),
+    }),
 }

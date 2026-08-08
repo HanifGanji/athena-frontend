@@ -186,6 +186,12 @@ export type ListeningEvaluation = {
   results: ListeningEvaluationResult[]
 }
 
+export type ListeningStaffPreview = {
+  test_slug: string
+  attempt: ListeningAttempt
+  evaluation: ListeningEvaluation
+}
+
 export const listeningApi = {
   listTests: (signal?: AbortSignal) =>
     apiRequest<ListeningTestSummary[]>('/listening/tests/', { signal }),
@@ -216,4 +222,9 @@ export const listeningApi = {
     ),
   getAsset: (url: string, signal?: AbortSignal) =>
     apiRequest<Blob>(url, { responseType: 'blob', signal }),
+  getStaffPreview: () =>
+    apiRequest<ListeningStaffPreview>('/staff/test-previews/listening/', {
+      method: 'POST',
+      body: jsonBody({}),
+    }),
 }

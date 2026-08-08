@@ -10,6 +10,8 @@
   and keep Reading, Speaking, Writing, and Listening behind the shared auth gate.
 - The local OTP flow sends no SMS and accepts any six digits. Keep that warning
   visible in the UI until a real OTP provider replaces the development seam.
+- Staff-only test preview cards may open seeded completed results for all four
+  modules. Gate them on `user.is_staff`; never mix them into learner flows.
 - Keep Writing prompts and essays LTR inside the Persian-first workspace. Draft
   saves must remain debounced, revision-aware, and free of AI calls. Never
   silently resolve a stale-revision conflict, mutate submitted text, or present

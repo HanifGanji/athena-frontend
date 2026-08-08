@@ -318,4 +318,9 @@ export const writingApi = {
       method: 'PUT',
       body: jsonBody({ decision }),
     }),
+  getStaffPreview: () =>
+    apiRequest<{ attempt: WritingAttempt }>('/staff/test-previews/writing/', {
+      method: 'POST',
+      body: jsonBody({}),
+    }),
 }

@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOptionalAuth } from '@/app/auth-provider'
+import { StaffTestPreviewCard } from '@/app/staff-test-preview-card'
 import { absoluteApiUrl, ApiError } from '@/lib/api-client'
 import {
   type WritingAttempt,
@@ -603,6 +605,7 @@ function EvaluationPanel({
 }
 
 export function WritingWorkspace() {
+  const auth = useOptionalAuth()
   const [prompts, setPrompts] = useState<WritingPromptSummary[]>([])
   const [tests, setTests] = useState<WritingTestSummary[]>([])
   const [attemptHistory, setAttemptHistory] = useState<WritingAttemptSummary[]>(
@@ -624,6 +627,8 @@ export function WritingWorkspace() {
   const [pendingSaves, setPendingSaves] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [planSaving, setPlanSaving] = useState(false)
   const [pausingAttempt, setPausingAttempt] = useState(false)
   const [resumingAttemptId, setResumingAttemptId] = useState<string | null>(
@@ -779,6 +784,24 @@ export function WritingWorkspace() {
       )
     } finally {
       setResumingAttemptId(null)
+    }
+  }
+
+  async function openStaffPreview() {
+    setPreviewLoading(true)
+    setPreviewError(null)
+    try {
+      const { attempt: previewAttempt } = await writingApi.getStaffPreview()
+      hydrateAttempt(previewAttempt)
+      setFeedback(await writingApi.requestFeedback(previewAttempt.id))
+    } catch (reason) {
+      setPreviewError(
+        reason instanceof Error
+          ? reason.message
+          : 'پیش‌نمایش کارکنان آماده نشد.',
+      )
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -1317,6 +1340,15 @@ export function WritingWorkspace() {
             >
               {error}
             </div>
+          )}
+
+          {auth?.user?.is_staff && (
+            <StaffTestPreviewCard
+              moduleLabel="Writing"
+              error={previewError}
+              loading={previewLoading}
+              onOpen={() => void openStaffPreview()}
+            />
           )}
 
           {resumeNotice && (
